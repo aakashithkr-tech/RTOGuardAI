@@ -912,8 +912,13 @@ def score_existing_order(order_id: str, explain_plainly: bool = False):
         result = score_order(payload, service=service, interpret=explain_plainly)
         save_prediction(result)
         updated_order = update_order_with_prediction(order, result)
-        upsert_order(updated_order)
-        return updated_order
+upsert_order(updated_order)
+
+if isinstance(updated_order, dict) and "plain_language_summary" in result:
+    updated_order["plain_language_summary"] = result["plain_language_summary"]
+    updated_order["summary_source"] = result.get("summary_source", "unknown")
+
+return updated_order
     except UnknownPincode as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except ValueError as exc:
