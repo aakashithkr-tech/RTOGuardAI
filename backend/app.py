@@ -1,43 +1,87 @@
-"""RTOGuard AI — Integrated FastAPI Backend with Real CatBoost Inference & Persistent Storage.
+"""RTOGuard AI — Production-Ready FastAPI Backend with Real CatBoost Inference & Persistent Storage.
 
 Merges RTOGuardAI order operations with COD Return-Risk Scorer CatBoost ML pipeline.
-Provides persistent SQLite storage, real-time ML scoring, SHAP explainability, and diagnostics.
+Provides persistent SQLite storage, real-time ML scoring, SHAP explainability,
+profit intelligence, analytics, NDR recovery, and system diagnostics.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 # Ensure backend root is on sys.path so 'src' imports resolve cleanly
 BACKEND_ROOT = Path(__file__).resolve().parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
 
 from database import (
     count_orders,
     count_predictions,
+    create_order as db_create_order,
+    delete_order as db_delete_order,
     get_all_orders,
     get_latest_prediction_for_order,
     get_order_by_id,
+    get_orders_analytics,
+    get_order_for_razorpay_reference,
+    get_prediction_by_id,
+    get_prediction_trends,
+    get_risk_distribution,
+    get_razorpay_order,
+    get_shipping_loss_analytics,
     init_db,
-    list_predictions,
+    list_orders as db_list_orders,
+    list_predictions as db_list_predictions,
+    patch_order as db_patch_order,
     save_prediction,
+    save_razorpay_order,
     upsert_order,
 )
+from integrations.razorpay import (
+    RAZORPAY_KEY_ID,
+    create_payment_link,
+    create_razorpay_order,
+    evaluate_dynamic_checkout,
+    has_razorpay_credentials,
+    is_razorpay_configured,
+    razorpay_mode,
+    verify_payment_signature,
+    verify_webhook_signature,
+)
+from schemas import (
+    BatchPredictionIn,
+    BatchScoreOut,
+    DecisionRequest,
+    OrderCreateIn,
+    OrderIn,
+    OrderUpdateIn,
+    ProfitEstimateIn,
+    ProfitScenariosIn,
+    ScoreOut,
+    WhatIfIn,
+)
+from services.csv_scorer import score_merchant_csv
+from services.profit import (
+    calculate_expected_shipping_loss,
+    evaluate_what_if_scenario,
+    generate_scenario_comparisons,
+)
+from src.bhashini import bhashini_configured, translate_text
 from src.interpret import GEMINI_MODEL, gemini_available
 from src.serving import (
+    MODEL_PATH,
     UnknownPincode,
     get_service,
     sample_orders,
@@ -55,78 +99,6 @@ VALID_CATEGORIES = [
     "home_kitchen",
     "electronics",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Pydantic Schemas for Request & Response
-# ---------------------------------------------------------------------------
-
-
-class CustomerHistoryIn(BaseModel):
-    past_orders: int = Field(0, ge=0, le=10_000)
-    past_rto_count: int = Field(0, ge=0, le=10_000)
-    account_age_days: float = Field(0.0, ge=0.0, le=20_000.0)
-    order_velocity_24h: int = Field(0, ge=0, le=100)
-
-    @field_validator("past_rto_count")
-    @classmethod
-    def _rto_not_above_orders(cls, v: int, info) -> int:
-        past = info.data.get("past_orders")
-        if past is not None and v > past:
-            raise ValueError(
-                f"past_rto_count ({v}) cannot exceed past_orders ({past})"
-            )
-        return v
-
-
-class OrderIn(BaseModel):
-    pincode: str = Field(..., description="6-digit Indian pincode")
-    address_line: str = Field(..., min_length=1, max_length=500)
-    category: Literal[
-        "fashion", "footwear", "beauty", "accessories", "home_kitchen", "electronics"
-    ]
-    order_value: float = Field(..., gt=0, le=1_000_000, description="INR")
-    is_cod: bool
-
-    order_id: str = Field("ord_adhoc", max_length=64)
-    customer_id: str = Field("CUST_UNKNOWN", max_length=64)
-    discount_pct: float = Field(0.0, ge=0.0, le=1.0, description="fraction, not %")
-    is_festive: Optional[bool] = None
-    is_alternate_address: bool = False
-    delivery_days_est: Optional[float] = Field(None, gt=0, le=60)
-    order_ts: Optional[datetime] = None
-    customer_history: CustomerHistoryIn = Field(default_factory=CustomerHistoryIn)
-
-    @field_validator("pincode")
-    @classmethod
-    def _six_digits(cls, v: str) -> str:
-        v = v.strip()
-        if not (len(v) == 6 and v.isdigit()):
-            raise ValueError("pincode must be exactly 6 digits")
-        return v
-
-
-class ScoreOut(BaseModel):
-    order_id: str
-    rto_probability: float
-    binary_threshold: float
-    band: Literal["low", "medium", "high"]
-    action: Literal["allow_cod", "charge_cod_fee", "disable_cod"]
-    action_label: Literal["ALLOW", "REVIEW", "BLOCK"]
-    reasons: list[str]
-    expected_loss_if_shipped_inr: float
-    flagged_at_binary_threshold: bool
-    is_cod: bool
-    resolved: dict[str, Any]
-    plain_language_summary: Optional[str] = None
-    summary_source: Optional[Literal["gemini", "template"]] = None
-
-
-class DecisionRequest(BaseModel):
-    order_id: str = Field(..., min_length=1)
-    risk_probability: float = Field(..., ge=0, le=1)
-    order_value: float = Field(..., ge=0)
-    intervention_cost: float = Field(default=20, ge=0)
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +134,7 @@ def infer_product_category(order: dict[str, Any]) -> str:
 
 
 def map_order_to_payload(order: dict[str, Any]) -> dict[str, Any]:
-    """Extract and map RTOGuard order fields to the model's exact schema."""
+    """Extract and map RTOGuard order fields to the model's exact feature schema."""
     cust = order.get("customer", {})
     raw_pin = str(cust.get("pincode", "")).strip()
     if len(raw_pin) != 6 or not raw_pin.isdigit():
@@ -246,14 +218,14 @@ def update_order_with_prediction(order: dict[str, Any], pred: dict[str, Any]) ->
             "sourceMetric": "CatBoost SHAP Attribution",
         })
 
-    loss_inr = float(pred["expected_loss_if_shipped_inr"])
+    loss_inr = float(pred.get("expected_loss_if_shipped_inr", round(p * 200.0, 2)))
 
     order["risk"] = {
         "riskScore": score,
         "riskCategory": category,
         "modelSource": "CatBoostClassifier (final_model.joblib)",
         "assessedAt": now,
-        "confidence": round(abs(p - float(pred["binary_threshold"])) * 1.58, 2),
+        "confidence": round(abs(p - float(pred.get("binary_threshold", 0.37))) * 1.58, 2),
         "primaryReason": primary_reason,
         "factors": factors,
         "recommendedAction": recommended_action,
@@ -263,7 +235,7 @@ def update_order_with_prediction(order: dict[str, Any], pred: dict[str, Any]) ->
         ),
         "isDemoAssessment": False,
         "modelProbability": p,
-        "binaryThreshold": pred.get("binary_threshold"),
+        "binaryThreshold": pred.get("binary_threshold", 0.37),
         "expectedLossIfShippedInr": loss_inr,
         "tierBand": pred.get("band", "medium"),
     }
@@ -289,12 +261,12 @@ def update_order_with_prediction(order: dict[str, Any], pred: dict[str, Any]) ->
 
 
 # ---------------------------------------------------------------------------
-# Default Seed Orders Initializer
+# Initial Seed Orders
 # ---------------------------------------------------------------------------
 
 
 def create_initial_seed_orders() -> list[dict[str, Any]]:
-    """Build the standard 6 hackathon seed orders across all typical scenarios."""
+    """Build standard representative orders across Indian e-commerce scenarios."""
     now = datetime.now(timezone.utc).isoformat()
     return [
         {
@@ -615,7 +587,6 @@ async def lifespan(app: FastAPI):
                 upsert_order(updated)
             except Exception as e:
                 logger.warning(f"Error scoring seed order {ord_data['id']}: {e}")
-                # Save base order
                 upsert_order(ord_data)
 
     yield
@@ -641,7 +612,7 @@ CORS_ORIGINS = os.environ.get(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if "*" in CORS_ORIGINS else CORS_ORIGINS,
+    allow_origins=["*"] if "*" in CORS_ORIGINS else [o.strip() for o in CORS_ORIGINS if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -649,19 +620,24 @@ app.add_middleware(
 
 
 @app.exception_handler(UnknownPincode)
-async def _unknown_pincode_handler(request, exc: UnknownPincode) -> JSONResponse:
+async def _unknown_pincode_handler(request: Request, exc: UnknownPincode) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(ValueError)
+async def _value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
 # ---------------------------------------------------------------------------
-# Health & Model Diagnostics Endpoints
+# Health & Diagnostics Endpoints
 # ---------------------------------------------------------------------------
 
 
 @app.get("/health", tags=["system"])
 @app.get("/api/health", tags=["system"])
 def health():
-    """Distinguish between backend service availability and real ML model loading."""
+    """Basic service health reporting model status and database count."""
     model_loaded = False
     model_details = {}
     try:
@@ -687,18 +663,196 @@ def health():
     }
 
 
+@app.get("/ready", tags=["system"])
+@app.get("/api/ready", tags=["system"])
+def readiness():
+    """Verify required services and model readiness. Returns 503 if model or db fails."""
+    try:
+        # Verify database
+        n_orders = count_orders()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database readiness failed: {exc}",
+        )
+
+    try:
+        service = get_service()
+        if not service or not hasattr(service, "pipeline"):
+            raise RuntimeError("Model pipeline missing in service bundle")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Machine learning model readiness failed: {exc}",
+        )
+
+    return {
+        "status": "ready",
+        "model_loaded": True,
+        "database_connected": True,
+        "orders_count": n_orders,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/v1/model/status", tags=["model"])
+def model_status():
+    """Detailed model status, estimator, SHA-256 digest, and frozen operating threshold."""
+    try:
+        service = get_service()
+        info = service.describe()
+        return {
+            "status": "operational",
+            "model_key": info["model_key"],
+            "estimator": info["estimator"],
+            "sha256": info["model_sha256"],
+            "seed": info["seed"],
+            "frozen_threshold": info["frozen_threshold"],
+            "tier_cuts": info["frozen_tier_cuts"],
+            "cost_params_inr": info["cost_params_inr"],
+            "n_features": info["n_feature_columns"],
+            "source": info["source"],
+            "model_path": str(MODEL_PATH),
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Model unavailable: {exc}",
+        )
+
+
+@app.get("/api/v1/model/metrics", tags=["model"])
+def model_metrics():
+    """Verified evaluation metrics loaded directly from reports/results/05_final_metrics.json."""
+    metrics_path = BACKEND_ROOT / "reports" / "results" / "05_final_metrics.json"
+    if not metrics_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Evaluation metrics artifact reports/results/05_final_metrics.json not found.",
+        )
+    try:
+        data = json.loads(metrics_path.read_text(encoding="utf-8"))
+        return {
+            "final_model": data.get("final_model"),
+            "frozen_operating_point": data.get("frozen_operating_point"),
+            "test_set_evaluation": data.get("test"),
+            "validation_set_evaluation": data.get("validation"),
+            "cost_model_summary": {
+                "fn_cost_inr": 200.0,
+                "margin_rate": 0.25,
+                "prepaid_conversion": 0.45,
+                "cod_fee_inr": 50.0,
+                "operating_threshold": 0.37,
+            },
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed reading metrics artifact: {exc}")
+
+
 # ---------------------------------------------------------------------------
-# Order Retrieval Endpoints
+# Orders CRUD & Pagination Endpoints
 # ---------------------------------------------------------------------------
 
 
 @app.get("/api/orders", tags=["orders"])
-def get_orders():
-    """Retrieve all orders from SQLite with latest model risk assessments."""
-    return get_all_orders()
+@app.get("/api/v1/orders", tags=["orders"])
+def list_orders(
+    status: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    risk_category: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Retrieve orders with filtering, searching, and pagination.
+
+    Backward compatible: if no query params supplied, returns the full list for existing frontend calls.
+    """
+    if status is None and payment_method is None and risk_category is None and search is None and limit == 50 and offset == 0:
+        return get_all_orders()
+
+    result = db_list_orders(
+        status=status,
+        payment_method=payment_method,
+        risk_category=risk_category,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return result["items"]
+
+
+@app.post("/api/orders", tags=["orders"], status_code=status.HTTP_201_CREATED)
+@app.post("/api/v1/orders", tags=["orders"], status_code=status.HTTP_201_CREATED)
+def create_order_endpoint(order_in: OrderCreateIn):
+    """Create a new order in persistent SQLite storage and optionally score it immediately."""
+    now = datetime.now(timezone.utc).isoformat()
+    order_id = order_in.id or f"ord_{int(datetime.now(timezone.utc).timestamp()*1000)}"
+    order_num = order_in.orderNumber or f"RTO-{order_id[-4:]}"
+
+    financials_dict = (
+        order_in.financials.model_dump()
+        if order_in.financials
+        else {
+            "orderValue": order_in.orderValue,
+            "productCost": round(order_in.orderValue * 0.35, 2),
+            "forwardShippingCost": 120.0,
+            "packagingCost": 40.0,
+            "paymentGatewayFee": round(order_in.orderValue * 0.02, 2) if order_in.paymentMethod == "PREPAID" else 0.0,
+            "codCollectionFee": 50.0 if order_in.paymentMethod == "COD" else 0.0,
+            "reverseLogisticsCost": 150.0,
+            "verificationCost": 0.0,
+            "incentiveDiscount": 0.0,
+            "expectedContribution": round(order_in.orderValue * 0.3, 2),
+            "currency": "INR",
+        }
+    )
+
+    new_order: dict[str, Any] = {
+        "id": order_id,
+        "orderNumber": order_num,
+        "createdAt": now,
+        "updatedAt": now,
+        "orderValue": order_in.orderValue,
+        "paymentMethod": order_in.paymentMethod,
+        "status": order_in.status or "PENDING",
+        "deliveryAttempts": order_in.deliveryAttempts,
+        "items": [it.model_dump() for it in order_in.items],
+        "customer": order_in.customer.model_dump(),
+        "financials": financials_dict,
+        "timeline": [
+            {
+                "id": f"evt_create_{order_id}",
+                "orderId": order_id,
+                "timestamp": now,
+                "eventName": "Order Created",
+                "category": "LIFECYCLE",
+                "source": "MERCHANT_MANUAL",
+                "details": f"Order received. Value: ₹{order_in.orderValue:.2f}, Payment: {order_in.paymentMethod}",
+                "outcome": "SUCCESS",
+            }
+        ],
+    }
+
+    # Automatically score with CatBoost if requested
+    if order_in.runPredictionImmediately:
+        try:
+            payload = map_order_to_payload(new_order)
+            result = score_order(payload, interpret=False)
+            save_prediction(result)
+            new_order = update_order_with_prediction(new_order, result)
+        except Exception as exc:
+            logger.warning(f"Immediate scoring skipped for created order {order_id}: {exc}")
+
+    try:
+        saved = db_create_order(new_order)
+        return saved
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @app.get("/api/orders/{order_id}", tags=["orders"])
+@app.get("/api/v1/orders/{order_id}", tags=["orders"])
 def get_order(order_id: str):
     """Retrieve an order by ID or orderNumber."""
     order = get_order_by_id(order_id)
@@ -707,29 +861,55 @@ def get_order(order_id: str):
     return order
 
 
+@app.patch("/api/orders/{order_id}", tags=["orders"])
+@app.patch("/api/v1/orders/{order_id}", tags=["orders"])
+def patch_order_endpoint(order_id: str, update: OrderUpdateIn):
+    """Update permitted fields of an existing order."""
+    patch_data = update.model_dump(exclude_unset=True)
+    updated = db_patch_order(order_id, patch_data)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Order '{order_id}' not found")
+    return updated
+
+
+@app.delete("/api/orders/{order_id}", tags=["orders"])
+@app.delete("/api/v1/orders/{order_id}", tags=["orders"])
+def delete_order_endpoint(order_id: str):
+    """Delete an order by ID."""
+    order = get_order_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail=f"Order '{order_id}' not found")
+
+    deleted = db_delete_order(order_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Order '{order_id}' could not be deleted")
+    return {"status": "deleted", "order_id": order_id}
+
+
 # ---------------------------------------------------------------------------
-# Real ML Scoring Endpoints
+# Prediction & Inference Endpoints
 # ---------------------------------------------------------------------------
 
 
 @app.post("/api/orders/{order_id}/score", tags=["scoring"])
+@app.post("/api/v1/orders/{order_id}/predict", tags=["scoring"])
 def score_existing_order(order_id: str, explain_plainly: bool = False):
-    """Score an existing order using the real trained CatBoostClassifier.
-
-    1. Retrieves the order from SQLite.
-    2. Maps order fields to the exact feature schema required by the fitted pipeline.
-    3. Runs inference through CatBoostClassifier with frozen threshold 0.37.
-    4. Computes SHAP explainability reasons and expected shipping loss.
-    5. Saves prediction persistently to the predictions table.
-    6. Updates order risk assessment, appends audit timeline event, and saves to SQLite.
-    """
+    """Score an existing order using the real trained CatBoostClassifier."""
     order = get_order_by_id(order_id)
     if not order:
         raise HTTPException(status_code=404, detail=f"Order '{order_id}' not found")
 
     try:
+        service = get_service()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"CatBoost model is unavailable: {exc}",
+        )
+
+    try:
         payload = map_order_to_payload(order)
-        result = score_order(payload, interpret=explain_plainly)
+        result = score_order(payload, service=service, interpret=explain_plainly)
         save_prediction(result)
         updated_order = update_order_with_prediction(order, result)
         upsert_order(updated_order)
@@ -740,20 +920,29 @@ def score_existing_order(order_id: str, explain_plainly: bool = False):
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         logger.error(f"Inference failure on order {order_id}: {exc}")
-        raise HTTPException(
-            status_code=500, detail=f"Model inference failed: {str(exc)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Model inference failed: {str(exc)}")
 
 
 @app.post("/score", response_model=ScoreOut, tags=["scoring"])
 @app.post("/api/score", response_model=ScoreOut, tags=["scoring"])
+@app.post("/api/v1/predictions", response_model=ScoreOut, tags=["scoring"])
 def score_raw(order: OrderIn, explain_plainly: bool = False):
     """Score one raw order payload with CatBoostClassifier, return decision, and persist."""
+    try:
+        service = get_service()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"CatBoost model is unavailable: {exc}",
+        )
+
     payload = order.model_dump()
     payload["customer_history"] = order.customer_history.model_dump()
     try:
-        result = score_order(payload, interpret=explain_plainly)
+        result = score_order(payload, service=service, interpret=explain_plainly)
         save_prediction(result)
+        result["prediction_timestamp"] = datetime.now(timezone.utc).isoformat()
+        result["model_version"] = "CatBoost 1.2.8"
         return result
     except UnknownPincode as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -763,12 +952,61 @@ def score_raw(order: OrderIn, explain_plainly: bool = False):
         raise HTTPException(status_code=500, detail=f"Model scoring error: {exc}")
 
 
+@app.post("/api/v1/predictions/batch", response_model=BatchScoreOut, tags=["scoring"])
+def score_batch(batch: BatchPredictionIn, explain_plainly: bool = False):
+    """Score a bounded batch of orders (up to 100) using CatBoostClassifier."""
+    try:
+        service = get_service()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"CatBoost model is unavailable: {exc}",
+        )
+
+    results: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc).isoformat()
+
+    for item in batch.orders:
+        payload = item.model_dump()
+        payload["customer_history"] = item.customer_history.model_dump()
+        try:
+            res = score_order(payload, service=service, interpret=explain_plainly)
+            save_prediction(res)
+            res["prediction_timestamp"] = now
+            res["model_version"] = "CatBoost 1.2.8"
+            results.append(res)
+        except Exception as exc:
+            logger.warning(f"Batch scoring error on order {item.order_id}: {exc}")
+            results.append({
+                "order_id": item.order_id,
+                "rto_probability": 0.0,
+                "binary_threshold": 0.37,
+                "band": "medium",
+                "action": "charge_cod_fee",
+                "action_label": "REVIEW",
+                "reasons": [f"Scoring error: {exc}"],
+                "expected_loss_if_shipped_inr": 0.0,
+                "flagged_at_binary_threshold": False,
+                "is_cod": item.is_cod,
+                "resolved": {},
+                "prediction_timestamp": now,
+                "model_version": "CatBoost 1.2.8",
+            })
+
+    return {"count": len(results), "predictions": results}
+
+
 @app.post("/decision", tags=["legacy"])
 def legacy_decision(data: DecisionRequest):
     """Backward compatibility endpoint for decision requests."""
     p = data.risk_probability
-    service = get_service()
-    threshold = service.threshold  # 0.37
+    threshold = 0.37
+    try:
+        service = get_service()
+        threshold = service.threshold
+    except Exception:
+        pass
+
     level = "HIGH" if p >= threshold else "LOW"
     action = "Priority review" if p >= threshold else "Standard processing"
 
@@ -790,28 +1028,43 @@ def legacy_decision(data: DecisionRequest):
 
 @app.get("/predictions", tags=["history"])
 @app.get("/api/predictions", tags=["history"])
-def get_prediction_history(limit: int = Query(default=20, ge=1, le=100)):
-    """Retrieve newest persistent scoring records."""
-    records = list_predictions(limit=limit)
+@app.get("/api/v1/predictions", tags=["history"])
+def get_prediction_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    order_id: Optional[str] = None,
+    band: Optional[str] = None,
+    min_probability: Optional[float] = None,
+    max_probability: Optional[float] = None,
+):
+    """Retrieve newest persistent scoring records with filtering and pagination."""
+    records = db_list_predictions(
+        limit=limit,
+        offset=offset,
+        order_id=order_id,
+        band=band,
+        min_prob=min_probability,
+        max_prob=max_probability,
+    )
     return {"count": len(records), "predictions": records}
 
 
 @app.get("/api/predictions/{order_id}", tags=["history"])
-def get_prediction_by_order(order_id: str):
-    """Retrieve the latest persistent prediction for a specific order."""
-    pred = get_latest_prediction_for_order(order_id)
+@app.get("/api/v1/predictions/{prediction_id}", tags=["history"])
+def get_prediction_by_identifier(prediction_id: Optional[str] = None, order_id: Optional[str] = None):
+    """Retrieve prediction by numeric id or order_id string."""
+    identifier = prediction_id or order_id
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Prediction identifier required")
+    pred = get_prediction_by_id(identifier)
     if not pred:
-        raise HTTPException(status_code=404, detail=f"No prediction found for order '{order_id}'")
+        raise HTTPException(status_code=404, detail=f"No prediction found for '{identifier}'")
     return pred
-
-
-# ---------------------------------------------------------------------------
-# Sample Orders for Testing / Evaluation
-# ---------------------------------------------------------------------------
 
 
 @app.get("/sample_orders", tags=["demo"])
 @app.get("/api/sample_orders", tags=["demo"])
+@app.get("/api/v1/sample_orders", tags=["demo"])
 def get_sample_orders(n_per_tier: int = 2):
     """Return real validation-split sample orders spanning ALLOW, REVIEW, and BLOCK."""
     if not 1 <= n_per_tier <= 5:
@@ -820,11 +1073,12 @@ def get_sample_orders(n_per_tier: int = 2):
 
 
 # ---------------------------------------------------------------------------
-# Dashboard Analytics Summary
+# Dashboard Analytics Endpoints
 # ---------------------------------------------------------------------------
 
 
 @app.get("/api/dashboard/summary", tags=["dashboard"])
+@app.get("/api/v1/dashboard/summary", tags=["dashboard"])
 def dashboard_summary():
     """Compute aggregate dashboard metrics from persistent SQLite orders."""
     orders = get_all_orders()
@@ -875,9 +1129,112 @@ def dashboard_summary():
     }
 
 
+@app.get("/api/v1/analytics/risk-distribution", tags=["analytics"])
+def analytics_risk_distribution():
+    """Distribution of orders across risk categories and decision bands."""
+    return get_risk_distribution()
+
+
+@app.get("/api/v1/analytics/prediction-trends", tags=["analytics"])
+def analytics_prediction_trends():
+    """Chronological history of predictions and average probabilities."""
+    return get_prediction_trends()
+
+
+@app.get("/api/v1/analytics/shipping-loss", tags=["analytics"])
+def analytics_shipping_loss():
+    """Aggregate shipping loss metrics and calculated prevention savings."""
+    return get_shipping_loss_analytics()
+
+
+@app.get("/api/v1/analytics/orders", tags=["analytics"])
+def analytics_orders():
+    """Aggregate breakdown by order status, payment mode, and pincode tier."""
+    return get_orders_analytics()
+
+
 # ---------------------------------------------------------------------------
-# Merchant Actions, Lifecycle Events & NDR Recovery
+# Profit Intelligence & What-If Endpoints
 # ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/profit/estimate", tags=["profit"])
+def profit_estimate_endpoint(data: ProfitEstimateIn):
+    """Estimate expected loss using validated model probability and available cost inputs."""
+    loss = calculate_expected_shipping_loss(
+        probability=data.rto_probability,
+        forward_shipping_cost=data.forward_shipping_cost,
+        reverse_logistics_cost=data.reverse_logistics_cost,
+        packaging_cost=data.packaging_cost,
+        default_fn_cost_inr=data.default_fn_cost_inr,
+    )
+    return {
+        "rto_probability": data.rto_probability,
+        "order_value": data.order_value,
+        "expected_shipping_loss_inr": loss,
+        "formula": "Expected Shipping Loss = P(RTO) * [Forward + Reverse + Packaging Cost]",
+        "note": "Probabilities indicate estimated risk likelihood and do not guarantee an RTO outcome.",
+    }
+
+
+@app.post("/api/v1/profit/what-if", tags=["profit"])
+def profit_what_if_endpoint(data: WhatIfIn):
+    """Compare risk or cost scenarios using documented probability-weighted calculations."""
+    return evaluate_what_if_scenario(
+        order_value=data.order_value,
+        rto_probability=data.rto_probability,
+        forward_shipping_cost=data.forward_shipping_cost,
+        reverse_logistics_cost=data.reverse_logistics_cost,
+        product_cost_ratio=data.product_cost_ratio,
+        is_cod=data.is_cod,
+        intervention_type=data.intervention_type,
+        incentive_discount=data.incentive_discount,
+        verification_cost=data.verification_cost,
+        conversion_rate=data.conversion_rate,
+    )
+
+
+@app.post("/profit/scenarios", tags=["profit"])
+@app.post("/api/profit/scenarios", tags=["profit"])
+def profit_scenarios_endpoint(data: ProfitScenariosIn):
+    """Frontend-compatible endpoint generating transparent operational scenarios."""
+    order = get_order_by_id(data.orderId)
+    if not order:
+        raise HTTPException(status_code=404, detail=f"Order '{data.orderId}' not found")
+
+    order_val = float(order.get("orderValue", 1000.0))
+    fin = data.financials or order.get("financials", {})
+    score = (
+        data.riskScore
+        if data.riskScore is not None
+        else order.get("risk", {}).get("riskScore", 50.0)
+    )
+    is_cod = order.get("paymentMethod") == "COD"
+    cat = order.get("risk", {}).get("riskCategory", "MEDIUM")
+
+    return generate_scenario_comparisons(
+        order_id=data.orderId,
+        order_value=order_val,
+        financials=fin,
+        risk_score=score,
+        is_cod=is_cod,
+        risk_category=cat,
+    )
+
+
+# ---------------------------------------------------------------------------
+# NDR Rescue & Lifecycle Events
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/ndr/orders", tags=["ndr"])
+def list_ndr_orders():
+    """Retrieve all orders currently in active NDR or recovery status."""
+    orders = get_all_orders()
+    ndr_orders = [
+        o for o in orders if o.get("status") in ["NDR_PENDING", "RECOVERY_IN_PROGRESS"]
+    ]
+    return ndr_orders
 
 
 @app.post("/api/orders/{order_id}/actions", tags=["actions"])
@@ -941,6 +1298,7 @@ def record_event(order_id: str, data: dict[str, Any]):
 
 
 @app.post("/api/orders/{order_id}/ndr/recovery", tags=["ndr"])
+@app.post("/api/v1/ndr/{order_id}/action", tags=["ndr"])
 def ndr_recovery(order_id: str, data: dict[str, Any]):
     """Transmit NDR recovery instruction, update courier status, and persist."""
     order = get_order_by_id(order_id)
@@ -981,6 +1339,311 @@ def ndr_recovery(order_id: str, data: dict[str, Any]):
 
 
 # ---------------------------------------------------------------------------
+# Optional Multilingual / Bhashini Endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/multilingual/translate", tags=["multilingual"])
+async def translate_endpoint(
+    text: str = Body(..., embed=True),
+    target_language: str = Body("hi", embed=True),
+    template_type: Optional[str] = Body(None, embed=True),
+):
+    """Optional multilingual translation service powered by BHASHINI with offline fallback."""
+    result = await translate_text(
+        text=text,
+        target_language=target_language,
+        template_type=template_type,
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Razorpay Dynamic Checkout & Payment Integrations (Buildathon Track 02)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/razorpay/checkout-gate", tags=["razorpay"])
+@app.post("/api/v1/razorpay/checkout-gate", tags=["razorpay"])
+def razorpay_checkout_gate(payload: dict[str, Any]):
+    """Evaluate CatBoost RTO score in real-time and return dynamic Razorpay checkout policy."""
+    try:
+        service = get_service()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Risk scoring model unavailable: {exc}",
+        )
+
+    try:
+        model_payload = {
+            "order_id": payload.get("order_id", "cart_adhoc"),
+            "customer_id": payload.get("customer_id", "CUST_CHECKOUT"),
+            "pincode": str(payload["pincode"]).strip(),
+            "address_line": str(payload["address_line"]).strip(),
+            "category": str(payload.get("category", "fashion")),
+            "order_value": float(payload["order_value"]),
+            "is_cod": True,  # Evaluate assuming buyer selected COD
+            "customer_history": payload.get("customer_history", {}),
+        }
+        pred = score_order(model_payload, service=service, explain=True, interpret=True)
+        prob = float(pred["rto_probability"])
+        threshold = float(pred.get("binary_threshold", 0.37))
+        low_cut = float(service.low_cut)
+        high_cut = float(service.high_cut)
+
+        decision = evaluate_dynamic_checkout(
+            rto_probability=prob,
+            order_value=float(payload["order_value"]),
+            threshold=threshold,
+            low_cut=low_cut,
+            high_cut=high_cut,
+        )
+        decision["reasons"] = pred.get("reasons", [])
+        decision["plain_language_summary"] = pred.get("plain_language_summary")
+        decision["expected_shipping_loss_inr"] = pred.get("expected_loss_if_shipped_inr", 0.0)
+        return decision
+    except UnknownPincode as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Dynamic checkout gate failed: {exc}")
+        raise HTTPException(status_code=422, detail=f"Checkout gate evaluation error: {exc}")
+
+
+@app.post("/api/razorpay/create-order", tags=["razorpay"])
+@app.post("/api/v1/razorpay/create-order", tags=["razorpay"])
+def razorpay_create_order_endpoint(data: dict[str, Any]):
+    """Create a test/live Razorpay order for prepayment or COD verification fee."""
+    amount_inr = float(data.get("amount_inr", 0))
+    if amount_inr <= 0:
+        raise HTTPException(status_code=422, detail="amount_inr must be positive")
+    receipt = str(data.get("order_id") or data.get("receipt") or f"rcpt_{int(datetime.now(timezone.utc).timestamp())}")
+    notes = data.get("notes") or {}
+    try:
+        rzp_order = create_razorpay_order(amount_inr=amount_inr, receipt=receipt, notes=notes)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    save_razorpay_order(
+        order_id=receipt,
+        razorpay_order_id=str(rzp_order["id"]),
+        amount_paise=int(rzp_order["amount"]),
+        mode=str(rzp_order.get("mode", razorpay_mode())),
+    )
+    return rzp_order
+
+
+@app.post("/api/razorpay/payment-link", tags=["razorpay"])
+@app.post("/api/v1/razorpay/payment-link", tags=["razorpay"])
+def razorpay_payment_link_endpoint(data: dict[str, Any]):
+    """Create a Razorpay payment link for high-risk orders to send via WhatsApp/SMS."""
+    order_id = str(data.get("order_id", "ord_adhoc"))
+    amount_inr = float(data.get("amount_inr", 0))
+    if amount_inr <= 0:
+        raise HTTPException(status_code=422, detail="amount_inr must be positive")
+    name = str(data.get("customer_name", "Customer"))
+    phone = data.get("customer_phone")
+    email = data.get("customer_email")
+    desc = data.get("description")
+    try:
+        link = create_payment_link(
+            order_id=order_id,
+            amount_inr=amount_inr,
+            customer_name=name,
+            customer_phone=phone,
+            customer_email=email,
+            description=desc,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return link
+
+
+@app.post("/api/razorpay/verify-payment", tags=["razorpay"])
+@app.post("/api/v1/razorpay/verify-payment", tags=["razorpay"])
+def razorpay_verify_payment_endpoint(data: dict[str, Any]):
+    """Verify a Standard Checkout signature against its persisted local order."""
+    order_id = str(data.get("order_id", ""))
+    razorpay_order_id = str(data.get("razorpay_order_id", ""))
+    payment_id = str(data.get("razorpay_payment_id", ""))
+    signature = str(data.get("razorpay_signature", ""))
+    gateway_order = get_razorpay_order(order_id) if order_id else None
+    if not gateway_order or gateway_order["mode"] == "simulated":
+        raise HTTPException(status_code=409, detail="No live Razorpay order exists for this checkout.")
+    if gateway_order["razorpay_order_id"] != razorpay_order_id:
+        raise HTTPException(status_code=400, detail="Payment does not match the order created for this checkout.")
+    if not verify_payment_signature(razorpay_order_id, payment_id, signature):
+        raise HTTPException(status_code=400, detail="Invalid Razorpay payment signature.")
+
+    order = get_order_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Local order not found.")
+    now = datetime.now(timezone.utc).isoformat()
+    order["status"] = "CONFIRMED"
+    order["paymentMethod"] = "PREPAID"
+    order.setdefault("timeline", []).append({
+        "id": f"evt_rzp_payment_{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+        "orderId": order_id,
+        "timestamp": now,
+        "eventName": "Razorpay Checkout Payment Verified",
+        "category": "PAYMENT",
+        "source": "RAZORPAY_CHECKOUT",
+        "details": f"Payment ID: {payment_id}; Razorpay order ID: {razorpay_order_id}",
+        "outcome": "SUCCESS",
+    })
+    order["updatedAt"] = now
+    upsert_order(order)
+    return {"status": "verified", "order_id": order_id}
+
+
+@app.post("/api/razorpay/demo-payment", tags=["razorpay"])
+@app.post("/api/v1/razorpay/demo-payment", tags=["razorpay"])
+def razorpay_demo_payment_endpoint(data: dict[str, Any]):
+    """Record an explicit local payment simulation when no Razorpay account is configured."""
+    if has_razorpay_credentials():
+        raise HTTPException(status_code=404, detail="Demo payment simulation is disabled when Razorpay credentials are configured.")
+    order_id = str(data.get("order_id", ""))
+    gateway_order = get_razorpay_order(order_id) if order_id else None
+    if not gateway_order or gateway_order["mode"] != "simulated":
+        raise HTTPException(status_code=404, detail="Simulated checkout order not found.")
+    order = get_order_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Local order not found.")
+    now = datetime.now(timezone.utc).isoformat()
+    order["status"] = "CONFIRMED"
+    order["paymentMethod"] = "PREPAID"
+    order.setdefault("timeline", []).append({
+        "id": f"evt_demo_payment_{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+        "orderId": order_id,
+        "timestamp": now,
+        "eventName": "Simulated Online Payment",
+        "category": "PAYMENT",
+        "source": "DEMO_SIMULATOR",
+        "details": "Local demo confirmation only; no money was charged.",
+        "outcome": "SUCCESS",
+    })
+    order["updatedAt"] = now
+    upsert_order(order)
+    return {"status": "simulated", "order_id": order_id}
+
+
+@app.post("/api/razorpay/webhook", tags=["razorpay"])
+@app.post("/api/v1/razorpay/webhook", tags=["razorpay"])
+async def razorpay_webhook_endpoint(request: Request):
+    """Receive and process Razorpay webhooks (payment.captured, order.paid, etc.)."""
+    raw_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+    if not os.environ.get("RAZORPAY_WEBHOOK_SECRET"):
+        raise HTTPException(status_code=503, detail="Razorpay webhook secret is not configured.")
+    if not verify_webhook_signature(raw_body, signature):
+        raise HTTPException(status_code=401, detail="Invalid Razorpay webhook signature.")
+    try:
+        data = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    event = data.get("event", "")
+    payload = data.get("payload", {})
+    entity = (
+        payload.get("payment", {}).get("entity")
+        or payload.get("order", {}).get("entity")
+        or payload.get("payment_link", {}).get("entity")
+        or {}
+    )
+    order_id = (
+        entity.get("notes", {}).get("order_id")
+        or entity.get("receipt")
+        or entity.get("reference_id")
+    )
+    if not order_id:
+        gateway_order_id = entity.get("order_id") or entity.get("id")
+        gateway_order = (
+            get_order_for_razorpay_reference(str(gateway_order_id))
+            if gateway_order_id
+            else None
+        )
+        order_id = gateway_order["order_id"] if gateway_order else None
+
+    logger.info(f"Received Razorpay webhook event: {event} for order {order_id}")
+
+    if order_id:
+        existing = get_order_by_id(order_id)
+        if existing:
+            now = datetime.now(timezone.utc).isoformat()
+            if event in ["payment.captured", "order.paid", "payment_link.paid"]:
+                payment = payload.get("payment", {}).get("entity", entity)
+                existing["status"] = "CONFIRMED"
+                existing["paymentMethod"] = "PREPAID"
+                timeline = existing.setdefault("timeline", [])
+                timeline.append({
+                    "id": f"evt_rzp_{len(timeline)+1}",
+                    "orderId": order_id,
+                    "timestamp": now,
+                    "eventName": "Razorpay Payment Captured",
+                    "category": "PAYMENT",
+                    "source": "RAZORPAY_WEBHOOK",
+                    "details": f"Payment ID: {payment.get('id', 'pay_test')}, Amount: ₹{payment.get('amount', 0)/100:.2f}",
+                    "outcome": "SUCCESS",
+                })
+                existing["updatedAt"] = now
+                upsert_order(existing)
+            elif event in ["payment.failed", "payment_link.expired"]:
+                timeline = existing.setdefault("timeline", [])
+                timeline.append({
+                    "id": f"evt_rzp_{len(timeline)+1}",
+                    "orderId": order_id,
+                    "timestamp": now,
+                    "eventName": "Razorpay Payment Failed",
+                    "category": "PAYMENT",
+                    "source": "RAZORPAY_WEBHOOK",
+                    "details": f"Gateway event: {event}",
+                    "outcome": "FAILED",
+                })
+                existing["updatedAt"] = now
+                upsert_order(existing)
+
+    return {"status": "ok", "event": event, "order_id": order_id}
+
+
+# ---------------------------------------------------------------------------
+# Batch CSV Upload & Scoring Endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/predictions/csv", tags=["batch"])
+@app.post("/api/v1/predictions/csv", tags=["batch"])
+async def upload_and_score_csv(file: UploadFile = File(...)):
+    """Upload a merchant orders CSV, batch score with CatBoost, and return summary + enriched data."""
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only CSV files (.csv) are supported")
+
+    content = await file.read()
+    try:
+        result = score_merchant_csv(content)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"CSV scoring failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed scoring CSV: {exc}")
+
+
+@app.post("/api/predictions/csv/download", tags=["batch"])
+@app.post("/api/v1/predictions/csv/download", tags=["batch"])
+async def download_scored_csv(file: UploadFile = File(...)):
+    """Upload CSV and immediately stream back the enriched CSV file."""
+    content = await file.read()
+    try:
+        result = score_merchant_csv(content)
+        return Response(
+            content=result["csv_data"],
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=rtoguard_scored_orders.csv"},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed processing CSV: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Static Files Mount for Production Deployment
 # ---------------------------------------------------------------------------
 
@@ -995,4 +1658,5 @@ else:
             "message": "Backend API is active. Real CatBoost model loaded.",
             "docs": "/docs",
             "health": "/health",
+            "version": "2.0.0",
         }

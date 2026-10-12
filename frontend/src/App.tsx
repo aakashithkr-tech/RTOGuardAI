@@ -13,6 +13,8 @@ import { NdrRescuePanel } from './components/ndr/NdrRescuePanel';
 import { AnalyticsView } from './components/analytics/AnalyticsView';
 import { SettingsIntegrations } from './components/settings/SettingsIntegrations';
 import { DemoWalkthroughModal } from './components/demo/DemoWalkthroughModal';
+import { StorefrontCheckout } from './components/checkout/StorefrontCheckout';
+import { BatchCsvScorer } from './components/batch/BatchCsvScorer';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
 import {
   Order,
@@ -220,7 +222,7 @@ export const App: React.FC = () => {
   const selectedOrder = orders.find(o => o.id === selectedOrderId);
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] text-slate-900 overflow-hidden font-sans">
+    <div className="flex h-[100dvh] bg-[#f8fafc] text-slate-900 overflow-hidden font-sans">
       {/* Persistent Left Sidebar */}
       <Sidebar
         activeTab={activeTab}
@@ -249,7 +251,7 @@ export const App: React.FC = () => {
         />
 
         {/* Scrollable Viewport */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 md:p-8">
           {isLoading ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
@@ -312,6 +314,17 @@ export const App: React.FC = () => {
               {activeTab === 'simulator' && <WhatIfSimulator />}
 
               {activeTab === 'analytics' && <AnalyticsView orders={orders} />}
+
+              {activeTab === 'checkout' && (
+                <StorefrontCheckout
+                  onOrderCreated={() => {
+                    refreshData();
+                    setActiveTab('orders');
+                  }}
+                />
+              )}
+
+              {activeTab === 'batch' && <BatchCsvScorer />}
 
               {activeTab === 'settings' && (
                 <SettingsIntegrations

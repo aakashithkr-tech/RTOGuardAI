@@ -26,14 +26,14 @@ export const Header: React.FC<HeaderProps> = ({
   onSearchChange,
 }) => {
   return (
-    <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30">
-      <div className="flex items-center gap-4">
+    <header className="min-h-16 bg-white border-b border-slate-200 px-2 sm:px-6 py-2 flex items-center justify-between gap-2 sticky top-0 z-30">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
         {/* Store selector / context */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+        <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs min-w-0">
           <Store className="w-3.5 h-3.5 text-indigo-600" />
-          <span className="font-semibold text-slate-800">Zenith D2C Flagship</span>
-          <span className="text-slate-400">|</span>
-          <span className="text-slate-500 font-mono">₹ INR Storefront</span>
+          <span className="font-semibold text-slate-800 truncate">Zenith D2C</span>
+          <span className="hidden sm:inline text-slate-400">|</span>
+          <span className="hidden sm:inline text-slate-500 font-mono">₹ INR Storefront</span>
           <span className="h-2 w-2 rounded-full bg-emerald-500" title="Webhooks active" />
         </div>
 
@@ -50,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1 sm:gap-3 shrink-0">
         {/* Visible Demo Mode Indicator */}
         {mode === 'DEMO_MOCK' ? (
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-purple-50 border border-purple-200 text-purple-700 text-xs font-medium">
@@ -58,12 +58,12 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-600"></span>
             </span>
-            <span>Simulated Hackathon Demo</span>
+            <span className="hidden sm:inline">Simulated Hackathon Demo</span>
           </div>
         ) : (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Live Backend Mode</span>
+            <span className="hidden sm:inline">Live Backend Mode</span>
           </div>
         )}
 
@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
           title="Open Judge-Ready Demo Workflow Script"
         >
           <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Demo Guide</span>
+          <span className="hidden md:inline">Demo Guide</span>
         </button>
 
         {/* Reset Demo State button */}
@@ -84,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
           title="Reset Seed Data to Initial State"
         >
           <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-          <span className="hidden sm:inline">Reset Demo</span>
+          <span className="hidden lg:inline">Reset Demo</span>
         </button>
 
         <div className="h-5 w-px bg-slate-200 mx-1 hidden sm:block" />
