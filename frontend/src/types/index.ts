@@ -131,6 +131,8 @@ export interface Order {
   customer: CustomerProfile;
   financials: FinancialBreakdown;
   risk: RiskAssessment;
+  plain_language_summary?: string;
+  summary_source?: string;
   ndr?: NdrDetails;
   deliveryAttempts: number;
   timeline: TimelineEvent[];
