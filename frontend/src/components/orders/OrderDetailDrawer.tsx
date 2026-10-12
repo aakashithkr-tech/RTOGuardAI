@@ -518,6 +518,25 @@ export const OrderDetailDrawer: React.FC<OrderDetailDrawerProps> = ({
                     {order.risk.primaryReason}
                   </p>
                 </div>
+                
+{/* Gemini Plain-Language Explanation */}
+{order.plain_language_summary && (
+  <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
+    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-violet-900">
+      <Sparkles className="w-4 h-4 text-violet-600" />
+      <span>Gemini AI Explanation</span>
+      {order.summary_source === 'gemini' && (
+        <span className="ml-auto px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[10px]">
+          LIVE GEMINI
+        </span>
+      )}
+    </div>
+    <p className="text-sm text-violet-950 mt-2 leading-relaxed">
+      {order.plain_language_summary}
+    </p>
+  </div>
+)}
+
 
                 {/* Detailed Factor Contributions */}
                 <div>
