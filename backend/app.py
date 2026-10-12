@@ -605,6 +605,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(whatsapp_router)
+
 # CORS configuration
 CORS_ORIGINS = os.environ.get(
     "CORS_ORIGINS",
@@ -1661,4 +1663,5 @@ else:
             "health": "/health",
             "version": "2.0.0",
         }
+
 
