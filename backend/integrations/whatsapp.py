@@ -1,5 +1,4 @@
-python
-import os
+﻿import os
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -34,7 +33,7 @@ async def send_test_message(data: WhatsAppTestMessage):
     if not data.message.strip() or len(data.message) > 1000:
         raise HTTPException(
             status_code=400,
-            detail="Message must contain 1–1000 characters",
+            detail="Message must contain 1â€“1000 characters",
         )
 
     url = (
