@@ -1,0 +1,32 @@
+**/node_modules/
+**/dist/
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local databases and database backups
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Generated caches and local dependencies
+**/node_modules/
+**/dist/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+
+# Local validation data and row-level prediction outputs
+backend/data/**/*.parquet
+backend/reports/results/*predictions*.parquet
+backend/reports/results/*exception_list*.csv

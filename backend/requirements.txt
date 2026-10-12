@@ -1,0 +1,3 @@
+# Complete local test environment; Docker installs only requirements-serve.txt.
+-r requirements-serve.txt
+pytest==8.3.4

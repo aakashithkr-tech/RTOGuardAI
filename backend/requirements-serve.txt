@@ -1,0 +1,14 @@
+# Serving dependencies pinned by the supplied COD Return-Risk Scorer project.
+numpy==2.1.3
+pandas==2.2.3
+scipy==1.14.1
+PyYAML==6.0.2
+scikit-learn==1.5.2
+catboost==1.2.8
+shap==0.48.0
+joblib==1.4.2
+pyarrow==25.0.1
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4
+httpx==0.28.1

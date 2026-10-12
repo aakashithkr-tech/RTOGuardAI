@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: rtoguard-ai
+    runtime: docker
+    plan: starter
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    disk:
+      name: rtoguard-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_PATH
+        value: /var/data/rtoguard.db
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: GEMINI_API_KEY
+        sync: false
