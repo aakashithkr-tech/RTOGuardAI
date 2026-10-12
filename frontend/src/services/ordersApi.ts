@@ -63,9 +63,12 @@ export async function recordOrderLifecycleEvent(
 export async function scoreOrderWithModel(orderId: string): Promise<Order> {
   const mode = getDataSourceMode();
   if (mode === 'LIVE_BACKEND') {
-    return await request<Order>(`/orders/${orderId}/score`, {
-      method: 'POST',
-    });
+    
+return await request<Order>(
+  `/orders/${orderId}/score?explain_plainly=true`,
+  { method: 'POST' }
+);
+
   }
 
   throw new Error(
