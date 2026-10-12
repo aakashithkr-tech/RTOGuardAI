@@ -1,4 +1,4 @@
-"""RTOGuard AI — Production-Ready FastAPI Backend with Real CatBoost Inference & Persistent Storage.
+﻿"""RTOGuard AI â€” Production-Ready FastAPI Backend with Real CatBoost Inference & Persistent Storage.
 
 Merges RTOGuardAI order operations with COD Return-Risk Scorer CatBoost ML pipeline.
 Provides persistent SQLite storage, real-time ML scoring, SHAP explainability,
@@ -49,6 +49,7 @@ from database import (
     save_razorpay_order,
     upsert_order,
 )
+from integrations.whatsapp import router as whatsapp_router
 from integrations.razorpay import (
     RAZORPAY_KEY_ID,
     create_payment_link,
@@ -231,7 +232,7 @@ def update_order_with_prediction(order: dict[str, Any], pred: dict[str, Any]) ->
         "recommendedAction": recommended_action,
         "actionRationale": (
             f"Trained CatBoost prediction: {tier} ({action_raw}). "
-            f"Expected shipping loss if dispatched on COD: ₹{loss_inr:.2f}."
+            f"Expected shipping loss if dispatched on COD: â‚¹{loss_inr:.2f}."
         ),
         "isDemoAssessment": False,
         "modelProbability": p,
@@ -251,7 +252,7 @@ def update_order_with_prediction(order: dict[str, Any], pred: dict[str, Any]) ->
         "source": "AI_ENGINE",
         "details": (
             f"Evaluated via CatBoostClassifier. RTO Probability: {p*100:.1f}%. "
-            f"Tier: {tier}. Expected shipping loss: ₹{loss_inr:.2f}."
+            f"Tier: {tier}. Expected shipping loss: â‚¹{loss_inr:.2f}."
         ),
         "outcome": "SUCCESS",
     })
@@ -286,7 +287,7 @@ def create_initial_seed_orders() -> list[dict[str, Any]]:
             }],
             "customer": {
                 "name": "Aditya S.",
-                "phoneMasked": "+91 98765 •••••",
+                "phoneMasked": "+91 98765 â€¢â€¢â€¢â€¢â€¢",
                 "emailMasked": "adity***@gmail.com",
                 "addressLine": "Near Shiv Mandir, Main Road, Tehsil Compound",
                 "city": "Muzaffarnagar",
@@ -330,7 +331,7 @@ def create_initial_seed_orders() -> list[dict[str, Any]]:
             }],
             "customer": {
                 "name": "Rohan K.",
-                "phoneMasked": "+91 99100 •••••",
+                "phoneMasked": "+91 99100 â€¢â€¢â€¢â€¢â€¢",
                 "emailMasked": "rohan.k***@outlook.com",
                 "addressLine": "Flat 402, Sector 62",
                 "city": "Noida",
@@ -384,7 +385,7 @@ def create_initial_seed_orders() -> list[dict[str, Any]]:
             }],
             "customer": {
                 "name": "Pooja M.",
-                "phoneMasked": "+91 98200 •••••",
+                "phoneMasked": "+91 98200 â€¢â€¢â€¢â€¢â€¢",
                 "emailMasked": "pooja.m***@gmail.com",
                 "addressLine": "B-304, Cubbon Road",
                 "city": "Bengaluru",
@@ -429,7 +430,7 @@ def create_initial_seed_orders() -> list[dict[str, Any]]:
             }],
             "customer": {
                 "name": "Vikas T.",
-                "phoneMasked": "+91 97112 •••••",
+                "phoneMasked": "+91 97112 â€¢â€¢â€¢â€¢â€¢",
                 "emailMasked": "vikas***@yahoo.com",
                 "addressLine": "Near Old Bus Stand, Post Office Gali",
                 "city": "Rohtak",
@@ -484,7 +485,7 @@ def create_initial_seed_orders() -> list[dict[str, Any]]:
             }],
             "customer": {
                 "name": "Sunita D.",
-                "phoneMasked": "+91 94120 •••••",
+                "phoneMasked": "+91 94120 â€¢â€¢â€¢â€¢â€¢",
                 "emailMasked": "sunita***@gmail.com",
                 "addressLine": "H.No 14, Rambagh area",
                 "city": "Jaipur",
@@ -528,7 +529,7 @@ def create_initial_seed_orders() -> list[dict[str, Any]]:
             }],
             "customer": {
                 "name": "Karan V.",
-                "phoneMasked": "+91 98991 •••••",
+                "phoneMasked": "+91 98991 â€¢â€¢â€¢â€¢â€¢",
                 "emailMasked": "karan***@gmail.com",
                 "addressLine": "Flat 201, Khairatabad",
                 "city": "Hyderabad",
@@ -828,7 +829,7 @@ def create_order_endpoint(order_in: OrderCreateIn):
                 "eventName": "Order Created",
                 "category": "LIFECYCLE",
                 "source": "MERCHANT_MANUAL",
-                "details": f"Order received. Value: ₹{order_in.orderValue:.2f}, Payment: {order_in.paymentMethod}",
+                "details": f"Order received. Value: â‚¹{order_in.orderValue:.2f}, Payment: {order_in.paymentMethod}",
                 "outcome": "SUCCESS",
             }
         ],
@@ -1581,7 +1582,7 @@ async def razorpay_webhook_endpoint(request: Request):
                     "eventName": "Razorpay Payment Captured",
                     "category": "PAYMENT",
                     "source": "RAZORPAY_WEBHOOK",
-                    "details": f"Payment ID: {payment.get('id', 'pay_test')}, Amount: ₹{payment.get('amount', 0)/100:.2f}",
+                    "details": f"Payment ID: {payment.get('id', 'pay_test')}, Amount: â‚¹{payment.get('amount', 0)/100:.2f}",
                     "outcome": "SUCCESS",
                 })
                 existing["updatedAt"] = now
@@ -1660,3 +1661,4 @@ else:
             "health": "/health",
             "version": "2.0.0",
         }
+
