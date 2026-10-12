@@ -1,184 +1,202 @@
-# RTOGuard AI — Integrated Full-Stack RTO Risk Intelligence Platform
+# RTOGuard AI — Production-Ready AI-Powered RTO Risk Intelligence Platform
 
-RTOGuard AI is a production-grade Cash-on-Delivery (COD) Return-to-Origin (RTO) risk prediction and order protection platform. It seamlessly unifies:
-1. **RTOGuard AI Frontend**: A high-performance React + TypeScript + Vite operations dashboard (Command Center, Order Desk, Profit Brain, What-If Simulator, NDR Rescue, and Settings).
-2. **COD Return-Risk Scorer Backend**: A FastAPI service powered by a trained **`CatBoostClassifier`** machine learning pipeline with local SHAP feature attribution, calibrated operating thresholds, expected shipping loss calculations, and persistent SQLite storage.
+RTOGuard AI is a production-grade Cash-on-Delivery (COD) Return-to-Origin (RTO) risk prediction and order protection platform for Indian e-commerce merchants.
+
+It unifies:
+1. **RTOGuard AI Operations Frontend**: A React + TypeScript + Vite merchant dashboard (Command Center, Order Desk, Profit Brain, NDR Rescue, Analytics), plus a risk-adaptive storefront checkout and batch CSV scorer.
+2. **COD Return-Risk Scorer Backend**: A production-grade FastAPI service powered by a trained **`CatBoostClassifier`** machine learning pipeline with local SHAP feature attribution, calibrated operating thresholds (frozen at 0.37), expected shipping loss calculations, persistent SQLite storage (WAL mode), profit intelligence, and optional BHASHINI Indian-language translation.
 
 ---
 
-## Architecture Overview
+## 1. Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│               RTOGuard AI Frontend (React + TS)             │
-│  - Order Desk & Command Center (Real-time risk scoring)     │
+│               RTOGuard AI Frontend (React 18 + TS)          │
+│  - Command Center & Order Desk (Real-time risk scoring)     │
 │  - Order Detail Drawer ("Score with Trained Model" action)  │
-│  - Settings & APIs (Live Model Diagnostics & SQLite stats)  │
+│  - Profit Brain & What-If Simulator (Unit economics)        │
+│  - NDR Rescue Panel (Reattempts & RTO approval workflow)    │
+│  - Settings & Integrations (Live Model Diagnostics)         │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ HTTP / REST (Vite Proxy / Direct)
+                               │ REST / JSON (HTTP)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                 FastAPI Backend (Python 3.13)               │
-│  - Persistent SQLite Database (Orders & Predictions)        │
+│  - Health & Diagnostics (/health, /ready, /api/v1/model/...)│
+│  - Orders CRUD & Bounded Batch Prediction Engine            │
 │  - CatBoost Model Pipeline (final_model.joblib)             │
-│  - SHAP TreeExplainer & Indian Pincode Directory (29k+ pins)│
-│  - Threshold Operating Point (0.37 binary / Tier Bands)     │
+│  - SHAP TreeExplainer & India Post Directory (29k+ pincodes)│
+│  - Operating Point (0.37 threshold, 0.05/0.40 tier cuts)    │
+│  - Persistent SQLite Database (/var/data/rtoguard.db)       │
+│  - Profit Intelligence & Explainable Loss Engine            │
+│  - Optional BHASHINI Multilingual Translation Service       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Machine Learning Details
+---
 
-- **Model Artifact**: `backend/models/final_model.joblib` (trained `CatBoostClassifier` pipeline with out-of-fold target encoding, one-hot encoding, and numerical imputation).
+## 2. Machine Learning Pipeline & Operating Policy
+
+- **Model Artifact**: `backend/models/final_model.joblib` (fitted CatBoost pipeline with categorical encoding, numerical imputers, and frozen parameters).
+- **Estimator**: `CatBoostClassifier` (classes `[0, 1]` where `1` = RTO / Return outcome).
 - **Features Handled**:
-  - Pincode intelligence: City, district, state, tier classification (Tier 1/2/3/Rural) mapped from `data/external/india_pincodes.csv`.
-  - Customer order history: Total orders, historical RTO count/rate, account age, order velocity (24h).
-  - Order parameters: Category, order value (INR), COD payment method, address complexity, festive flags.
-- **Decision Threshold & Tiers**:
-  - Operating decision threshold: **`0.37`**, frozen in the model artifact; an order is flagged when probability is greater than or equal to this value.
-  - **ALLOW**: `probability < 0.05`.
-  - **REVIEW**: `0.05 <= probability <= 0.40`.
-  - **BLOCK**: `probability > 0.40`.
-- **Explainability**: SHAP (TreeExplainer) extracts top driving factors (e.g., historical RTO rate, pincode risk, order velocity). Natural language synthesis via Gemini API is supported if `GEMINI_API_KEY` is configured.
-- **Expected Loss**: The serving policy uses `rto_probability × ₹200`; ₹200 is the model project's flat assumed failure cost, not a sum of each order's shipping charges.
-- **Training-data caveat**: The model was trained and evaluated on synthetic orders. Offline test ROC-AUC is 0.8060; at the frozen 0.37 threshold, test precision is 0.4583 and recall is 0.2688. These are not live-customer performance guarantees.
+  - **Pincode Intelligence**: City, district, state, tier classification (Tier 1/2/3/Rural) mapped from `data/external/india_pincodes.csv`.
+  - **Customer Order History**: Past orders count, past RTO count, past RTO rate, account age in days, order velocity in 24h.
+  - **Order Parameters**: Category (`fashion`, `footwear`, `beauty`, `accessories`, `home_kitchen`, `electronics`), order value (INR), COD payment method, address complexity, festive flags.
+- **Decision Policy & Thresholds**:
+  - **Operating Threshold**: **`0.37`** (frozen on validation in notebook `05` to minimize rupee cost). Orders with `probability >= 0.37` are flagged.
+  - **ALLOW (Low Risk)**: `probability < 0.05` → Clear order for standard COD dispatch.
+  - **REVIEW (Medium Risk)**: `0.05 <= probability < 0.40` → Verify address or charge COD commitment fee.
+  - **BLOCK (High Risk)**: `probability >= 0.40` → Disable COD and offer prepaid conversion with smart discount.
+- **Explainability**: SHAP `TreeExplainer` generates order-specific feature attributions without heuristic approximations.
+- **Expected Shipping Loss Formula**:
+  $$\text{Expected Shipping Loss} = P(\text{RTO}) \times \text{applicable RTO cost}$$
+  Flat baseline: $P(\text{RTO}) \times ₹200$ (representing forward shipping, reverse shipping, packaging, and handling burn).
+- **Verified Offline Evaluation**:
+  - Test Set: 10,000 orders, base rate 14.73%.
+  - PR-AUC: 0.3858 (2.62× the no-skill floor).
+  - ROC-AUC: 0.8060.
+  - Brier Score: 0.1059; Expected Calibration Error (ECE): 0.0118.
+  - Classification at 0.37: Precision = 0.4583, Recall = 0.2688, F1 = 0.3389.
 
 ---
 
-## Directory Structure
+## 3. Complete API Endpoints Reference
 
-```
-RTOGuardAI-Combined/
-├── Dockerfile                  # Multi-stage production container (Node 22 + Python 3.13)
-├── render.yaml                 # Render Blueprint with persistent disk config
-├── .env.example                # Unified environment variable template
-├── run-local.bat               # Windows 1-click launcher (backend + frontend)
-├── start-backend.bat           # Windows backend launcher (auto-creates venv & installs deps)
-├── start-frontend.bat          # Windows frontend launcher (auto-installs npm packages)
-├── backend/
-│   ├── app.py                  # FastAPI application with ML serving & persistent endpoints
-│   ├── database.py             # SQLite persistence layer (WAL mode, transactions, schema)
-│   ├── requirements.txt        # Serving and test dependencies
-│   ├── requirements-serve.txt  # Pinned production runtime dependencies
-│   ├── models/
-│   │   └── final_model.joblib  # Trained CatBoostClassifier artifact
-│   ├── src/                    # Model pipeline (serving, features, costs, interpret)
-│   ├── data/                   # Indian pincodes lookup (29,000+ entries) & validation sets
-│   └── tests/                  # Automated pytest suite
-│       ├── test_model_loading.py
-│       ├── test_real_inference.py
-│       ├── test_database_persistence.py
-│       └── test_api_endpoints.py
-└── frontend/
-    ├── package.json            # React + TypeScript + Vite + Lucide + Tailwind
-    ├── src/
-    │   ├── App.tsx             # Main router and state management
-    │   ├── types/index.ts      # TypeScript definitions with ML fields
-    │   ├── services/ordersApi.ts # Real API integration client
-    │   └── components/         # Dashboard, Order Desk, Drawer, Settings
-    └── dist/                   # Generated by npm run build; omitted from source ZIP
-```
+### Health & Diagnostics
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Basic service health, database counts, and model status |
+| `GET` | `/ready` | Deep readiness check (verifies database and ML model; returns 503 if unavailable) |
+| `GET` | `/api/v1/model/status` | Model loading status, estimator, SHA-256 digest, version, and threshold |
+| `GET` | `/api/v1/model/metrics` | Verified test & validation evaluation metrics from `05_final_metrics.json` |
+
+### Orders Management
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/orders` | List orders (backward compatible) |
+| `GET` | `/api/v1/orders` | List orders with pagination (`limit`, `offset`) and filters (`status`, `payment_method`, `risk_category`, `search`) |
+| `POST` | `/api/v1/orders` | Create an order with validation, duplicate detection, and optional immediate scoring |
+| `GET` | `/api/v1/orders/{order_id}` | Retrieve single order details |
+| `PATCH` | `/api/v1/orders/{order_id}` | Update permitted order fields (status, address, financials, ndr) |
+| `DELETE` | `/api/v1/orders/{order_id}` | Delete order record |
+
+### RTO Risk Prediction
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/score` or `/api/v1/predictions` | Predict risk for an ad-hoc order payload using CatBoost + SHAP |
+| `POST` | `/api/v1/predictions/batch` | Score a bounded batch of orders (up to 100 orders per request) |
+| `GET` | `/api/v1/predictions` | Query persistent scoring history with pagination and probability filters |
+| `GET` | `/api/v1/predictions/{id}` | Query single prediction by numeric ID or order ID |
+| `POST` | `/api/orders/{id}/score` or `/api/v1/orders/{id}/predict` | Score an existing order, update its risk assessment, and append audit event |
+
+### Dashboard & Analytics
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/dashboard/summary` | Real-time aggregate order counts, total order value, and estimated savings |
+| `GET` | `/api/v1/analytics/risk-distribution` | Distribution across LOW, MEDIUM, HIGH, CRITICAL categories and decision bands |
+| `GET` | `/api/v1/analytics/prediction-trends` | Time-series history of daily predictions, average scores, and flagged orders |
+| `GET` | `/api/v1/analytics/shipping-loss` | Expected shipping loss vs actual recorded RTO losses and prevented losses |
+| `GET` | `/api/v1/analytics/orders` | Breakdowns by order status, payment mode, and pincode tier |
+
+### Profit Intelligence & What-If
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/v1/profit/estimate` | Estimate expected shipping loss from probability and logistics cost inputs |
+| `POST` | `/api/v1/profit/what-if` | Interactive what-if simulator comparing baseline vs intervention outcomes |
+| `POST` | `/profit/scenarios` | Frontend-compatible endpoint generating 4 operational scenario comparisons |
+
+### NDR Rescue & Multilingual
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/ndr/orders` | List all orders currently in `NDR_PENDING` or `RECOVERY_IN_PROGRESS` |
+| `POST` | `/api/orders/{id}/ndr/recovery` | Schedule courier re-attempt or approve RTO for non-delivery report |
+| `POST` | `/api/v1/multilingual/translate` | Translate communication templates to Hindi/regional languages via BHASHINI (with fallback) |
+
+Interactive OpenAPI documentation is available at **`http://localhost:8000/docs`**.
+
+### Razorpay checkout configuration
+
+Set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` to the credentials from a
+Razorpay **test-mode** account to create real test orders and launch Standard
+Checkout. Set `RAZORPAY_WEBHOOK_SECRET` to the webhook secret configured in the
+Razorpay dashboard; webhook requests without a valid `X-Razorpay-Signature`
+are rejected. The API verifies the Standard Checkout signature against the
+persisted local/gateway order association before confirming an order.
+
+When no Razorpay credentials are configured, the storefront offers a clearly
+labelled local payment simulation. It does not create a payable link or claim
+that money was charged. Never put the key secret or webhook secret in frontend
+environment variables.
 
 ---
 
-## Local Development & Quick Start
+## 4. Local Execution & Quick Start (Windows PowerShell)
 
-### Quick Launch on Windows
+### Quick One-Click Launch
+Double-click `run-local.bat` in the project root. It starts both backend and frontend in separate terminal windows.
 
-Double-click **`run-local.bat`** in the project root. This opens two console windows:
-1. **Backend**: Sets up the Python virtual environment and launches Uvicorn on `http://127.0.0.1:8000`.
-2. **Frontend**: Installs npm dependencies if needed and launches Vite on `http://127.0.0.1:5173`.
+### Manual Launch via Windows PowerShell
 
-### Manual CLI Setup
-
-#### 1. Backend Service
+#### 1. Start the Backend
 ```powershell
 cd backend
-py -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install --upgrade pip
 pip install -r requirements.txt
 python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
+Backend will be live at `http://localhost:8000`.
 
-#### 2. Frontend Application
+#### 2. Start the Frontend
 ```powershell
 cd frontend
-Copy-Item .env.example .env
 npm ci
 npm run dev
 ```
-Open **`http://localhost:5173`** in your browser.
+Frontend will be live at `http://localhost:5173`.
 
 ---
 
-## API Endpoints Reference
+## 5. Automated Testing & Verification
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | System health & CatBoost model diagnostics (status, SHA256, threshold, memory) |
-| `GET` | `/api/orders` | Fetch all orders from persistent SQLite database |
-| `GET` | `/api/orders/{order_id}` | Fetch single order details with latest model assessment |
-| `POST` | `/api/orders/{order_id}/score` | **Score order with real CatBoost model** and persist prediction record |
-| `POST` | `/score` | Ad-hoc order prediction with full SHAP attribution payload |
-| `GET` | `/api/predictions` | Query the latest persisted model prediction per order |
-| `GET` | `/api/dashboard/summary` | Real-time aggregate risk counts, total at-risk value, and RTO rates |
-| `POST` | `/api/orders/{order_id}/actions` | Record merchant action (Hold, Release, Flag, Prepay) |
-| `POST` | `/api/orders/{order_id}/ndr/recovery` | Schedule re-attempt or approve RTO for non-delivery reports |
+Run the comprehensive test suite (36 automated tests covering model loading, real inference, feature validation, risk boundaries, expected loss, database persistence, CRUD, analytics, profit intelligence, batch predictions, Razorpay signature handling, and model unavailable behavior):
 
-Interactive Swagger documentation is available at **`http://localhost:8000/docs`**.
-
----
-
-## Verification & Testing
-
-### 1. Run Automated Backend Tests
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
-Test coverage includes:
-- `test_model_loading.py`: Verifies `final_model.joblib` exists, loads as `CatBoostClassifier`, and reports correct metadata.
-- `test_real_inference.py`: Verifies real feature inference, probability bounds `[0.0, 1.0]`, deterministic scores, and 6-digit pincode validation.
-- `test_database_persistence.py`: Verifies SQLite schema creation, prediction logging, upserts, and persistence across separate writer and reader processes.
-- `test_api_endpoints.py`: Tests `/health`, `/api/orders`, `/api/orders/{id}/score`, and `/score` HTTP responses and status codes.
 
-### 2. Run Frontend Build
+Run the end-to-end smoke test against the live FastAPI application:
+```powershell
+cd backend
+.\.venv\Scripts\python.exe tests/smoke_test_live.py
+```
+
+Run the frontend TypeScript compile & production bundle check:
 ```powershell
 cd frontend
 npm run build
 ```
-Confirms TypeScript compilation and asset bundling into `frontend/dist/`.
+
+The frontend sidebar includes **Storefront Checkout** for ALLOW/REVIEW/BLOCK
+checkout demonstrations and **Batch CSV Scoring** for uploading merchant data
+and downloading enriched results. In local simulation mode, the payment action
+is explicitly labelled as a demo and records no real payment.
 
 ---
 
-## Production Deployment (Render & Docker)
+## 6. Production Deployment on Render
 
-### Docker Deployment
-The included multi-stage `Dockerfile` compiles the React frontend into static assets and serves both the API and frontend through FastAPI on a single port:
+The repository is configured for zero-configuration Docker Blueprint deployment on Render:
 
-```bash
-docker build -t rtoguard-ai .
-docker run -p 8000:8000 -v rtoguard_data:/var/data -e DATABASE_PATH=/var/data/rtoguard.db rtoguard-ai
-```
-
-### Render Deployment via `render.yaml`
-1. Push this repository to GitHub or GitLab.
-2. In Render, select **New +** → **Blueprint** and link your repository.
-3. Render reads `render.yaml`:
-   - Configures a Docker web service.
-   - Attaches a **1 GB persistent disk** mounted at `/var/data` (ensuring SQLite survives redeploys).
-   - Sets health check to `/health`.
-   - Render injects the web service port; SQLite is written to `/var/data/rtoguard.db`.
-4. Configure optional environment variables in the Render dashboard:
-   - `GEMINI_API_KEY`: (Optional) For AI-generated natural language risk summaries.
-   - `CORS_ORIGINS`: Allowed origins (defaults to `*`).
-
-The container and Render deployment are configuration-complete but were not
-built or deployed in this environment because Docker is unavailable here.
-
----
-
-## Persistence Guarantees
-- Order mutations, manual actions, and machine-learning predictions are stored in SQLite using Write-Ahead Logging (`WAL` mode) and synchronous transactions.
-- The predictions table keeps one latest snapshot per order; rescoring updates that record instead of duplicating it. Repeated score events remain in the order audit timeline.
-- Restarting the backend preserves scored orders, the latest risk scores, and audit records.
+1. **Blueprint**: `render.yaml` defines a Docker web service using the root `Dockerfile`.
+2. **Persistent Storage**: Configures a 1 GB persistent disk mounted at `/var/data` to ensure SQLite survives redeploys.
+3. **Environment Variables**:
+   - `DATABASE_PATH`: Set to `/var/data/rtoguard.db`
+   - `CORS_ORIGINS`: Set to `*` (or your merchant frontend domain)
+   - `GEMINI_API_KEY`: (Optional) For AI-generated natural-language explanations
+   - `BHASHINI_API_KEY`: (Optional) For live ULCA Hindi translations
+   - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`: (Optional) Razorpay credentials; use test-mode keys for the hackathon demo
+4. **Unified Single-Port Serving**: The multi-stage Docker container builds the React frontend with Vite and mounts the static distribution under FastAPI, serving the entire application on the port injected by Render via `$PORT`.
