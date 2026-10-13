@@ -147,19 +147,308 @@ py -3.13 -m venv .venv
 pip install -r requirements.txt
 python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
+---
+
+## 4. Integrate RTOGuard into any website
+
+RTOGuardAI exposes a standalone, merchant-facing RTO risk-scoring API that any third-party B2C website (Shopify, WooCommerce, Magento, or custom React/Vue/Node.js checkouts) can integrate into its purchase flow.
+
+### How it fits into checkout
+When a shopper enters their shipping pincode, address, and selects a payment method, your checkout calls RTOGuard before confirming the order. RTOGuard evaluates the delivery address against 29,000+ Indian postal codes, factors in order value and customer history, and returns a dynamic decision:
+- **`ALLOW`**: Low risk ($P(\text{RTO}) < 0.05$). Standard Cash on Delivery is approved with zero surcharge.
+- **`REVIEW`**: Medium risk ($0.05 \le P(\text{RTO}) < 0.40$). COD is enabled with a ₹50 delivery confirmation fee, or the buyer is incentivized to pay prepaid with an instant ₹50 discount.
+- **`BLOCK`**: High risk ($P(\text{RTO}) \ge 0.40$). Cash on Delivery is disabled. The buyer is offered secure online payment (UPI/Cards) with an instant discount (e.g. ₹50–₹100).
+
+---
+
+### Prerequisites & Environment Variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ADMIN_TOKEN` | *Required for admin* | Master token used by merchant operations to create merchants and revoke keys via `X-Admin-Token`. If unset, admin endpoints fail closed. |
+| `RATE_LIMIT_PER_MIN` | `60` | Per-API-key requests allowed per minute before returning HTTP `429 Too Many Requests`. |
+| `DATABASE_PATH` | `data/rtoguard.db` | Path to persistent SQLite database. |
+
+---
+
+### Step 1: Merchant Registration & API Key Issuance
+
+Merchants can self-register via the portal UI or the `/v1/auth` REST API, which automatically provisions initial API keys:
+
+#### Option A: Self-Service Signup (Public)
+```bash
+curl -X POST "http://localhost:8000/v1/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Merchant",
+    "email": "jane@example.com",
+    "password": "securepassword123",
+    "store_name": "Jane Boutique",
+    "allowed_domains": ["https://janeboutique.com", "http://localhost:5173"]
+  }'
+```
+
+#### Option B: 1-Click Judge & Demo Login (Hackathon Fast Pass)
+```bash
+curl -X POST "http://localhost:8000/v1/auth/demo-login"
+```
+
+#### Option C: Platform Admin Provisioning (Protected by ADMIN_TOKEN)
+```bash
+curl -X POST "http://localhost:8000/v1/admin/merchants" \
+  -H "X-Admin-Token: YOUR_SECURE_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My E-Commerce Store",
+    "allowed_domains": ["mystore.com", "http://localhost:5173"],
+    "mode": "test"
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "merch_4c8a91bf",
+  "name": "My E-Commerce Store",
+  "allowed_domains": ["mystore.com", "http://localhost:5173"],
+  "created_at": "2026-10-13T04:00:00Z",
+  "active": true,
+  "keys": [
+    {
+      "id": "key_110a",
+      "type": "public",
+      "key": "pk_test_a8f9c2d7e1b4...",
+      "prefix": "pk_test_a8f9...",
+      "created_at": "2026-10-13T04:00:00Z"
+    },
+    {
+      "id": "key_220b",
+      "type": "secret",
+      "key": "sk_test_99bc33d1f0e2...",
+      "prefix": "sk_test_99bc...",
+      "created_at": "2026-10-13T04:00:00Z"
+    }
+  ]
+}
+```
+
+> [!WARNING]
+> Save the secret key (`sk_...`) in your secure server environment variables immediately. The plaintext key cannot be retrieved again; the database stores only SHA-256 cryptographic hashes.
+
+---
+
+### Step 2: Public vs. Secret Key Security Rules
+
+- **Public Key (`pk_...`)**:
+  - Safe for browser JavaScript and frontend HTML.
+  - Requires a valid `Origin` header matching one of the merchant's configured `allowed_domains`.
+  - Missing or unapproved origins are rejected with `403 Forbidden`.
+- **Secret Key (`sk_...`)**:
+  - Exclusively for server-to-server backend integrations.
+  - **Never embed in client-side JavaScript or HTML.**
+  - Does not require a browser `Origin` header.
+
+Authentication headers accepted:
+- `Authorization: Bearer <API_KEY>`
+- `X-API-Key: <API_KEY>`
+
+---
+
+### Step 3: Embeddable JavaScript SDK Integration (`/rtoguard.js`)
+
+Add the lightweight (< 10 KB), dependency-free SDK to your checkout page:
+
+```html
+<script src="https://YOUR-RTOGUARD-HOST/rtoguard.js" data-key="pk_test_YOUR_PUBLIC_KEY"></script>
+```
+
+#### Programmatic Scoring:
+```javascript
+RTOGuard.score({
+  pincode: "110001",
+  address: "Flat 4B, Barakhamba Road, New Delhi",
+  orderValue: 1999,
+  category: "fashion",
+  isCod: true
+}).then(function (decision) {
+  console.log("Decision tier:", decision.tier);
+  console.log("COD Available:", decision.cod_available);
+  console.log("COD Fee:", decision.cod_fee_inr);
+  console.log("Prepaid Discount:", decision.prepaid_discount_inr);
+
+  if (!decision.cod_available) {
+    document.getElementById("cod-radio").disabled = true;
+    alert("Cash on Delivery is unavailable for this address.");
+  }
+});
+```
+
+#### Automatic Checkout Widget:
+Place this container in your checkout form to automatically render an accessible COD/Prepaid selector:
+```html
+<div data-rtoguard-checkout
+     data-pincode="110001"
+     data-address="Flat 4B, Barakhamba Road"
+     data-order-value="1999"
+     data-category="fashion">
+</div>
+```
+
+The SDK listens for decisions and emits a standard `CustomEvent`:
+```javascript
+window.addEventListener("rtoguard:decision", function (event) {
+  console.log("RTOGuard decision received:", event.detail);
+});
+```
+
+#### Fail-Open Reliability:
+The SDK enforces a strict 3-second timeout. If the network drops or the API is temporarily unreachable, the SDK **fails open**: it returns an advisory `ALLOW` decision with `degraded: true`, ensuring your checkout flow is never blocked.
+
+---
+
+### Step 4: Server-Side Integration (`curl` & Node/Python)
+
+For security-sensitive payment gating, execute scoring from your backend using your secret key:
+
+```bash
+curl -X POST "http://localhost:8000/v1/score" \
+  -H "Authorization: Bearer sk_live_YOUR_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pincode": "560001",
+    "address_line": "B-304, Cubbon Road, Bangalore",
+    "order_value": 3199,
+    "category": "home_kitchen",
+    "is_cod": true,
+    "customer_history": {
+      "past_orders": 6,
+      "past_rto_count": 0,
+      "account_age_days": 180.0,
+      "order_velocity_24h": 1
+    }
+  }'
+```
+
+#### Client-Side Browser `fetch` Example:
+```javascript
+const res = await fetch("https://YOUR-RTOGUARD-HOST/v1/score", {
+  method: "POST",
+  headers: {
+    "X-API-Key": "pk_test_YOUR_PUBLIC_KEY",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    pincode: "560001",
+    address_line: "B-304, Cubbon Road, Bangalore",
+    order_value: 3199,
+    category: "home_kitchen",
+    is_cod: true
+  })
+});
+const decision = await res.json();
+```
+
+---
+
+### Step 5: Response Schema & Error Handling
+
+#### Successful Response (`200 OK`):
+```json
+{
+  "api_version": "v1",
+  "request_id": "req_83f109ab44ce",
+  "tier": "ALLOW",
+  "rto_probability": 0.038,
+  "reasons": [
+    "Established buyer history with zero prior delivery failures",
+    "High delivery density serviceable metro pin"
+  ],
+  "recommended_action": "allow",
+  "cod_available": true,
+  "cod_fee_inr": 0.0,
+  "prepaid_discount_inr": 0.0,
+  "message": "Standard Cash on Delivery is approved. Zero additional checkout friction.",
+  "summary": "ALLOW tier: 3.8% return probability. COD is available."
+}
+```
+
+#### Standard Error Response Format:
+```json
+{
+  "error": {
+    "code": "invalid_api_key",
+    "message": "The API key is invalid or revoked."
+  }
+}
+```
+
+#### HTTP Status Codes:
+- `401 Unauthorized`: Missing, invalid, or revoked API key (`code: "invalid_api_key"`).
+- `403 Forbidden`: Origin header missing or not in `allowed_domains` (`code: "origin_not_allowed"`), or merchant inactive (`code: "inactive_merchant"`).
+- `422 Unprocessable Entity`: Invalid pincode (not 6 digits), malformed data, or negative order value.
+- `429 Too Many Requests`: Rate limit exceeded (`RATE_LIMIT_PER_MIN=60`). Includes `Retry-After: <seconds>` response header.
+- `503 Service Unavailable`: Scoring model engine offline.
+
+---
+
+### Step 6: Querying Merchant Usage (`GET /v1/usage`)
+
+Inspect your account's API call metrics and recent requests:
+
+```bash
+curl -X GET "http://localhost:8000/v1/usage" \
+  -H "X-API-Key: sk_test_YOUR_SECRET_KEY"
+```
+
+**Response:**
+```json
+{
+  "merchant_id": "merch_4c8a91bf",
+  "total_requests": 142,
+  "successful_requests": 140,
+  "rate_limit_per_min": 60,
+  "recent_activity": [
+    {
+      "endpoint": "/v1/score",
+      "status_code": 200,
+      "timestamp": "2026-10-13T04:15:30Z"
+    }
+  ]
+}
+```
+
+---
+
+### Step 7: Testing the Standalone Demo Storefront
+
+Open `/integration-demo.html` in your browser:
+- Local URL: `http://localhost:8000/integration-demo.html` (or `http://localhost:5173/integration-demo.html` with Vite dev server).
+- Provides an interactive checkout sandbox demonstrating:
+  - Real `/rtoguard.js` SDK calls against `/v1/score`.
+  - Low, medium, and high risk presets (ALLOW, REVIEW, BLOCK).
+  - UI fixtures for instant visual comparison.
+  - Custom public test key and origin configuration.
+  - Real-time `rtoguard:decision` event stream inspector.
+
+---
+
+## 5. Local Setup & Testing
+
+#### 1. Start the Backend
+```powershell
+start-backend.bat
+```
 Backend will be live at `http://localhost:8000`.
 
 #### 2. Start the Frontend
 ```powershell
-cd frontend
-npm ci
-npm run dev
+start-frontend.bat
 ```
 Frontend will be live at `http://localhost:5173`.
 
 ---
 
-## 5. Automated Testing & Verification
+## 6. Automated Testing & Verification
 
 Run the comprehensive test suite (36 automated tests covering model loading, real inference, feature validation, risk boundaries, expected loss, database persistence, CRUD, analytics, profit intelligence, batch predictions, Razorpay signature handling, and model unavailable behavior):
 

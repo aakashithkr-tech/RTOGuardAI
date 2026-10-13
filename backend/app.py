@@ -50,6 +50,7 @@ from database import (
     upsert_order,
 )
 from integrations.whatsapp import router as whatsapp_router
+from v1_router import v1_router
 from integrations.razorpay import (
     RAZORPAY_KEY_ID,
     create_payment_link,
@@ -606,6 +607,7 @@ app = FastAPI(
 )
 
 app.include_router(whatsapp_router)
+app.include_router(v1_router)
 
 # CORS configuration
 CORS_ORIGINS = os.environ.get(
@@ -1672,5 +1674,8 @@ else:
             "health": "/health",
             "version": "2.0.0",
         }
+
+
+
 
 

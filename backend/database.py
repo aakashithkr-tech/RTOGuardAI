@@ -97,6 +97,155 @@ def init_db() -> None:
             """
         )
 
+        # Merchant API tables (additive)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS merchants (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                allowed_domains TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                merchant_id TEXT NOT NULL,
+                key_hash TEXT UNIQUE NOT NULL,
+                key_prefix TEXT NOT NULL,
+                type TEXT NOT NULL CHECK (type IN ('public', 'secret')),
+                created_at TEXT NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS merchant_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                merchant_id TEXT NOT NULL,
+                api_key_id TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                status_code INTEGER NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_key_rate_limits (
+                key_hash TEXT NOT NULL,
+                minute_bucket TEXT NOT NULL,
+                request_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (key_hash, minute_bucket)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                merchant_id TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                merchant_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+            """
+        )
+
+        # -------------------------------------------------------------------
+        # Multi-Tenant Plan, Metering, Audit Logs, and Subscription Tables
+        # -------------------------------------------------------------------
+        def _migrate_column(table: str, col_def: str):
+            c_name = col_def.split()[0]
+            cur = conn.execute(f"PRAGMA table_info({table})")
+            if c_name not in [r["name"] for r in cur.fetchall()]:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+
+        # Additive columns to existing merchants table
+        _migrate_column("merchants", "plan TEXT NOT NULL DEFAULT 'free'")
+        _migrate_column("merchants", "monthly_quota INTEGER NOT NULL DEFAULT 100")
+        _migrate_column("merchants", "plan_expires_at TEXT")
+        _migrate_column("merchants", "billing_status TEXT NOT NULL DEFAULT 'active'")
+
+        # Additive columns to existing api_keys table for rotation overlap & audit
+        _migrate_column("api_keys", "name TEXT DEFAULT 'Default Key Pair'")
+        _migrate_column("api_keys", "expires_at TEXT")
+        _migrate_column("api_keys", "revoked_at TEXT")
+        _migrate_column("api_keys", "last_used_at TEXT")
+
+        # Monthly usage counters for atomic concurrency-safe metering
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS merchant_usage_monthly (
+                merchant_id TEXT NOT NULL,
+                month_bucket TEXT NOT NULL,
+                billable_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (merchant_id, month_bucket),
+                FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # Audit logs for all security-sensitive key and billing events
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id TEXT PRIMARY KEY,
+                merchant_id TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT,
+                details TEXT,
+                ip_address TEXT,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # Subscription purchase and billing ledger
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id TEXT PRIMARY KEY,
+                merchant_id TEXT NOT NULL,
+                plan TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                provider_order_id TEXT,
+                provider_payment_id TEXT,
+                amount_inr REAL NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # Performance and filtering indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_merchant ON api_keys(merchant_id, revoked)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_merchant ON audit_logs(merchant_id, timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_merchant ON subscriptions(merchant_id, created_at)")
+
         # Remove historical duplicate predictions for the same order if any
         conn.execute(
             """
@@ -115,6 +264,13 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_payment ON orders(payment_method)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_risk ON orders(risk_category)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_predictions_created ON predictions(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_merchants_active ON merchants(active)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_merchant ON api_keys(merchant_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_merchant_time ON merchant_usage(merchant_id, timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_rate_limits_bucket ON api_key_rate_limits(minute_bucket)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(token)")
 
 
 def save_prediction(result: dict[str, Any]) -> int:
