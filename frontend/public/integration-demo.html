@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RTOGuardAI — Third-Party Store Integration Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-300: #cbd5e1;
+      --slate-600: #475569;
+      --slate-700: #334155;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+      --emerald-500: #10b981;
+      --amber-500: #f59e0b;
+      --rose-500: #f43f5e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: #f1f5f9;
+      color: var(--slate-800);
+      line-height: 1.5;
+      padding: 24px 16px;
+    }
+    .container {
+      max-width: 1040px;
+      margin: 0 auto;
+    }
+    header {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-info { background: #e0e7ff; color: #3730a3; }
+    .badge-allow { background: #dcfce7; color: #166534; }
+    .badge-review { background: #fef3c7; color: #92400e; }
+    .badge-block { background: #fee2e2; color: #991b1b; }
+    .badge-fixture { background: #f1f5f9; color: #475569; border: 1px dashed #94a3b8; }
+    
+    .config-banner {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 24px;
+      font-size: 13px;
+    }
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 768px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--slate-900);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--slate-700);
+      margin-bottom: 4px;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--slate-300);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--slate-900);
+      background: white;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: none;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      width: 100%;
+    }
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+    .btn-secondary {
+      background: var(--slate-100);
+      color: var(--slate-700);
+      border: 1px solid var(--slate-300);
+    }
+    .btn-secondary:hover {
+      background: var(--slate-200);
+    }
+    .fixture-btn-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .fixture-btn {
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--slate-300);
+      background: white;
+      cursor: pointer;
+      font-weight: 500;
+      color: var(--slate-600);
+    }
+    .fixture-btn:hover {
+      background: var(--slate-50);
+      color: var(--slate-900);
+      border-color: var(--slate-400);
+    }
+    
+    /* Decision UI */
+    .decision-box {
+      border: 1.5px solid var(--slate-200);
+      border-radius: 12px;
+      padding: 18px;
+      margin-top: 16px;
+      transition: all 0.2s ease;
+    }
+    .decision-allow {
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+    .decision-review {
+      border-color: #fde047;
+      background: #fefce8;
+    }
+    .decision-block {
+      border-color: #fca5a5;
+      background: #fef2f2;
+    }
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+    .metric-row:last-child { border-bottom: none; }
+    
+    /* Payment selector */
+    .pay-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px;
+      border: 1.5px solid var(--slate-300);
+      border-radius: 10px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      background: white;
+      transition: all 0.15s ease;
+    }
+    .pay-option.selected {
+      border-color: var(--primary);
+      background: #f5f3ff;
+    }
+    .pay-option.disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      background: var(--slate-100);
+      border-color: var(--slate-200);
+    }
+    .log-box {
+      background: #0f172a;
+      color: #38bdf8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      padding: 14px;
+      border-radius: 10px;
+      max-height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+  <!-- Load the real RTOGuard SDK -->
+  <script src="/rtoguard.js" id="rtoguard-script" data-key="pk_test_demo_sample_key"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:20px;">🛡️</span>
+          <h1 style="font-size:18px; font-weight:800; color:var(--slate-900);">RTOGuardAI — Store Checkout Integration Demo</h1>
+        </div>
+        <p style="font-size:12px; color:var(--slate-600); margin-top:2px;">
+          Interactive merchant integration sandbox demonstrating real SDK scoring, dynamic tier checkout, and UI fixtures.
+        </p>
+      </div>
+      <div>
+        <span class="badge badge-info" id="sdk-version-badge">SDK Active: v1.0.0</span>
+      </div>
+    </header>
+
+    <!-- Merchant API Key & Origin Configuration -->
+    <div class="config-banner">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong>Merchant Public Key & Origin Setup</strong>
+        <span style="font-size:11px; color:#1e40af;">Browser Origin: <code id="current-origin-label">http://localhost:5173</code></span>
+      </div>
+      <p style="font-size:12px; color:#1e40af; margin-top:4px;">
+        To score with your own merchant account, create a merchant via <code>POST /v1/admin/merchants</code> with your domain in <code>allowed_domains</code>, and paste your public test key (<code>pk_test_...</code>) below:
+      </p>
+      <div class="config-grid">
+        <div>
+          <label for="cfg-public-key">Public Key (pk_test_...)</label>
+          <input type="text" id="cfg-public-key" value="pk_test_demo_sample_key" placeholder="pk_test_...">
+        </div>
+        <div>
+          <label for="cfg-api-url">API Base URL</label>
+          <input type="text" id="cfg-api-url" value="" placeholder="e.g. http://localhost:8000">
+        </div>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px;">
+        <button type="button" class="btn btn-secondary" style="font-size:12px; padding:6px 12px;" onclick="applySdkConfig()">Apply Key & URL</button>
+        <span id="config-status-msg" style="font-size:12px; align-self:center; color:#15803d; font-weight:600;"></span>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <!-- Checkout Order Form -->
+      <div>
+        <div class="card">
+          <div class="card-title">
+            <span>📦</span>
+            <span>Simulated Merchant Checkout Form</span>
+          </div>
+
+          <div class="form-group">
+            <label for="preset-scenarios">Load Pre-configured Risk Scenario:</label>
+            <select id="preset-scenarios" onchange="loadPresetScenario(this.value)">
+              <option value="custom">-- Choose or customize below --</option>
+              <option value="low">Scenario A: Established Customer (Bangalore, 560001) → ALLOW</option>
+              <option value="medium">Scenario B: First-time Customer (Noida, 201303) → REVIEW</option>
+              <option value="high">Scenario C: High Historical RTO Rate (Rohtak, 124001) → BLOCK</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="order-category">Product Category</label>
+            <select id="order-category">
+              <option value="fashion">Fashion & Apparel</option>
+              <option value="footwear">Footwear & Shoes</option>
+              <option value="beauty">Beauty & Cosmetics</option>
+              <option value="accessories">Accessories & Bags</option>
+              <option value="home_kitchen">Home & Kitchen</option>
+              <option value="electronics">Electronics & Audio</option>
+            </select>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label for="order-value">Order Value (INR)</label>
+              <input type="number" id="order-value" value="2499" min="1" max="100000">
+            </div>
+            <div class="form-group">
+              <label for="pincode">Delivery Pincode</label>
+              <input type="text" id="pincode" value="560001" maxlength="6">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="address-line">Delivery Address</label>
+            <input type="text" id="address-line" value="Flat 402, Cubbon Road, Bangalore">
+          </div>
+
+          <!-- Customer History -->
+          <div style="border-top:1px solid var(--slate-200); padding-top:12px; margin-top:12px;">
+            <label style="font-size:12px; color:var(--slate-600); margin-bottom:8px;">Customer History (Optional Internal Data):</label>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+              <div>
+                <label for="past-orders" style="font-size:11px;">Past Orders</label>
+                <input type="number" id="past-orders" value="6" min="0">
+              </div>
+              <div>
+                <label for="past-rto" style="font-size:11px;">Past RTOs</label>
+                <input type="number" id="past-rto" value="0" min="0">
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:20px;">
+            <button type="button" class="btn btn-primary" id="btn-score" onclick="handleRealScore()">
+              <span id="btn-spinner" style="display:none;">⏳</span>
+              <span>Check RTO Risk with RTOGuard SDK</span>
+            </button>
+          </div>
+
+          <div style="margin-top:16px;">
+            <span style="font-size:11px; font-weight:600; color:var(--slate-600); display:block;">Or Preview Presentation States (UI-Only Fixtures):</span>
+            <div class="fixture-btn-group">
+              <button type="button" class="fixture-btn" onclick="renderFixture('ALLOW')">ALLOW Tier Fixture</button>
+              <button type="button" class="fixture-btn" onclick="renderFixture('REVIEW')">REVIEW Tier Fixture</button>
+              <button type="button" class="fixture-btn" onclick="renderFixture('BLOCK')">BLOCK Tier Fixture</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Checkout Widget & Decision Inspection -->
+      <div>
+        <div class="card">
+          <div class="card-title">
+            <span>💳</span>
+            <span>Dynamic Checkout Presentation</span>
+          </div>
+
+          <!-- Source indicator -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <span style="font-size:12px; font-weight:600; color:var(--slate-700);">Current Decision Status:</span>
+            <span id="source-badge" class="badge badge-fixture">No Check Run Yet</span>
+          </div>
+
+          <!-- Decision Box -->
+          <div id="decision-box" class="decision-box" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <strong id="decision-tier-label" style="font-size:15px; font-weight:700;">ALLOW</strong>
+              <span id="decision-prob-badge" class="badge badge-info">12.0% Return Prob</span>
+            </div>
+            <p id="decision-msg" style="font-size:12px; margin-bottom:12px; line-height:1.4; color:var(--slate-700);"></p>
+            
+            <div style="background:white; border-radius:8px; padding:10px; margin-bottom:12px; border:1px solid rgba(0,0,0,0.06);">
+              <div class="metric-row">
+                <span style="color:var(--slate-600);">RTO Probability:</span>
+                <strong id="metric-prob">0.1200</strong>
+              </div>
+              <div class="metric-row">
+                <span style="color:var(--slate-600);">COD Availability:</span>
+                <strong id="metric-cod">Available</strong>
+              </div>
+              <div class="metric-row">
+                <span style="color:var(--slate-600);">COD Confirmation Fee:</span>
+                <strong id="metric-fee">₹0</strong>
+              </div>
+              <div class="metric-row">
+                <span style="color:var(--slate-600);">Prepaid Instant Discount:</span>
+                <strong id="metric-discount" style="color:#16a34a;">₹0</strong>
+              </div>
+              <div class="metric-row">
+                <span style="color:var(--slate-600);">Fail-Open Status:</span>
+                <strong id="metric-degraded">Normal (Trained ML)</strong>
+              </div>
+            </div>
+
+            <div>
+              <span style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--slate-600); display:block; margin-bottom:4px;">Attribution Factors:</span>
+              <ul id="metric-reasons" style="font-size:12px; color:var(--slate-700); padding-left:18px;"></ul>
+            </div>
+          </div>
+
+          <!-- Checkout Payment Selector -->
+          <div style="margin-top:20px;">
+            <strong style="font-size:13px; color:var(--slate-900); display:block; margin-bottom:8px;">Select Payment Method:</strong>
+            
+            <div id="opt-prepaid" class="pay-option selected" onclick="selectPayOption('PREPAID')">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <input type="radio" name="pay_method" id="rad-prepaid" checked>
+                <div>
+                  <strong style="font-size:13px; color:var(--slate-900); display:block;">Online Payment (UPI, Cards, NetBanking)</strong>
+                  <span id="label-prepaid-note" style="font-size:11px; color:#16a34a; font-weight:500;">Instant payment gateway</span>
+                </div>
+              </div>
+              <strong id="amount-prepaid" style="font-size:14px; color:var(--slate-900);">₹2,499</strong>
+            </div>
+
+            <div id="opt-cod" class="pay-option" onclick="selectPayOption('COD')">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <input type="radio" name="pay_method" id="rad-cod">
+                <div>
+                  <strong style="font-size:13px; color:var(--slate-900); display:block;">Cash on Delivery (COD)</strong>
+                  <span id="label-cod-note" style="font-size:11px; color:var(--slate-600);">Pay at doorstep</span>
+                </div>
+              </div>
+              <strong id="amount-cod" style="font-size:14px; color:var(--slate-900);">₹2,499</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time SDK Event Log -->
+        <div class="card">
+          <div class="card-title">
+            <span>📡</span>
+            <span>SDK Event Stream (rtoguard:decision)</span>
+          </div>
+          <p style="font-size:11px; color:var(--slate-600); margin-bottom:8px;">
+            Captured via <code>window.addEventListener('rtoguard:decision', ...)</code>:
+          </p>
+          <div class="log-box" id="event-log">// Waiting for scoring request...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize UI and SDK values
+    document.getElementById('current-origin-label').textContent = window.location.origin;
+    
+    // Set default API URL based on origin
+    var defaultApiUrl = window.location.port === '5173' ? 'http://localhost:8000' : window.location.origin;
+    document.getElementById('cfg-api-url').value = defaultApiUrl;
+
+    if (window.RTOGuard) {
+      window.RTOGuard.init({
+        key: document.getElementById('cfg-public-key').value,
+        apiBaseUrl: defaultApiUrl,
+      });
+    }
+
+    // Listen to SDK decision events
+    window.addEventListener('rtoguard:decision', function (e) {
+      var log = document.getElementById('event-log');
+      var entry = '[' + new Date().toLocaleTimeString() + '] Event Dispatched:\n' + JSON.stringify(e.detail, null, 2);
+      log.textContent = entry;
+    });
+
+    function applySdkConfig() {
+      var key = document.getElementById('cfg-public-key').value.trim();
+      var url = document.getElementById('cfg-api-url').value.trim();
+      if (window.RTOGuard) {
+        window.RTOGuard.init({ key: key, apiBaseUrl: url });
+        var status = document.getElementById('config-status-msg');
+        status.textContent = '✓ Configured';
+        setTimeout(function () { status.textContent = ''; }, 3000);
+      }
+    }
+
+    function loadPresetScenario(type) {
+      if (type === 'low') {
+        document.getElementById('pincode').value = '560001';
+        document.getElementById('address-line').value = 'B-304, Cubbon Road, Bangalore';
+        document.getElementById('order-category').value = 'home_kitchen';
+        document.getElementById('order-value').value = '3199';
+        document.getElementById('past-orders').value = '6';
+        document.getElementById('past-rto').value = '0';
+      } else if (type === 'medium') {
+        document.getElementById('pincode').value = '201303';
+        document.getElementById('address-line').value = 'Flat 402, Sector 62, Noida';
+        document.getElementById('order-category').value = 'electronics';
+        document.getElementById('order-value').value = '1850';
+        document.getElementById('past-orders').value = '1';
+        document.getElementById('past-rto').value = '0';
+      } else if (type === 'high') {
+        document.getElementById('pincode').value = '124001';
+        document.getElementById('address-line').value = 'Near Old Bus Stand, Post Office Gali, Rohtak';
+        document.getElementById('order-category').value = 'accessories';
+        document.getElementById('order-value').value = '1450';
+        document.getElementById('past-orders').value = '2';
+        document.getElementById('past-rto').value = '2';
+      }
+    }
+
+    function selectPayOption(method) {
+      var optPrepaid = document.getElementById('opt-prepaid');
+      var optCod = document.getElementById('opt-cod');
+      var radPrepaid = document.getElementById('rad-prepaid');
+      var radCod = document.getElementById('rad-cod');
+
+      if (method === 'COD' && optCod.classList.contains('disabled')) {
+        return;
+      }
+
+      if (method === 'PREPAID') {
+        optPrepaid.classList.add('selected');
+        optCod.classList.remove('selected');
+        radPrepaid.checked = true;
+      } else {
+        optCod.classList.add('selected');
+        optPrepaid.classList.remove('selected');
+        radCod.checked = true;
+      }
+    }
+
+    function renderDecisionUI(decision, isFixture) {
+      var box = document.getElementById('decision-box');
+      var badge = document.getElementById('source-badge');
+      var tierLabel = document.getElementById('decision-tier-label');
+      var probBadge = document.getElementById('decision-prob-badge');
+      var msg = document.getElementById('decision-msg');
+      var mProb = document.getElementById('metric-prob');
+      var mCod = document.getElementById('metric-cod');
+      var mFee = document.getElementById('metric-fee');
+      var mDisc = document.getElementById('metric-discount');
+      var mDegraded = document.getElementById('metric-degraded');
+      var mReasons = document.getElementById('metric-reasons');
+
+      box.style.display = 'block';
+      box.className = 'decision-box';
+
+      var tier = decision.tier || 'ALLOW';
+      if (tier === 'ALLOW') {
+        box.classList.add('decision-allow');
+        tierLabel.textContent = 'ALLOW (Low Return Risk)';
+        tierLabel.style.color = '#15803d';
+      } else if (tier === 'REVIEW') {
+        box.classList.add('decision-review');
+        tierLabel.textContent = 'REVIEW (Medium Risk — Intervention)';
+        tierLabel.style.color = '#a16207';
+      } else {
+        box.classList.add('decision-block');
+        tierLabel.textContent = 'BLOCK (High Risk — COD Disabled)';
+        tierLabel.style.color = '#b91c1c';
+      }
+
+      badge.className = 'badge ' + (isFixture ? 'badge-fixture' : 'badge-allow');
+      badge.textContent = isFixture ? 'UI Preview Fixture' : 'Live ML API Response';
+
+      var p = typeof decision.rto_probability === 'number' ? decision.rto_probability : 0.0;
+      probBadge.textContent = (p * 100).toFixed(1) + '% Return Prob';
+      msg.textContent = decision.message || decision.summary;
+
+      mProb.textContent = p.toFixed(4);
+      mCod.textContent = decision.cod_available ? 'Available' : 'Disabled';
+      mCod.style.color = decision.cod_available ? '#15803d' : '#b91c1c';
+      mFee.textContent = '₹' + (decision.cod_fee_inr || 0);
+      mDisc.textContent = '₹' + (decision.prepaid_discount_inr || 0);
+      mDegraded.textContent = decision.degraded ? '⚠️ Degraded (Fallback Open)' : 'Normal (Trained ML)';
+      mDegraded.style.color = decision.degraded ? '#b91c1c' : '#15803d';
+
+      mReasons.innerHTML = '';
+      (decision.reasons || []).forEach(function (r) {
+        var li = document.createElement('li');
+        li.textContent = r;
+        mReasons.appendChild(li);
+      });
+
+      // Update payment options
+      var val = parseFloat(document.getElementById('order-value').value) || 2499;
+      var optCod = document.getElementById('opt-cod');
+      var codNote = document.getElementById('label-cod-note');
+      var prepaidNote = document.getElementById('label-prepaid-note');
+      var amountPrepaid = document.getElementById('amount-prepaid');
+      var amountCod = document.getElementById('amount-cod');
+
+      if (decision.prepaid_discount_inr > 0) {
+        var discounted = Math.max(1, val - decision.prepaid_discount_inr);
+        amountPrepaid.innerHTML = '₹' + discounted.toFixed(0) + ' <s style="font-size:11px; color:#94a3b8; font-weight:400;">₹' + val.toFixed(0) + '</s>';
+        prepaidNote.textContent = 'Instant ₹' + decision.prepaid_discount_inr.toFixed(0) + ' discount applied!';
+      } else {
+        amountPrepaid.textContent = '₹' + val.toFixed(0);
+        prepaidNote.textContent = 'Fast & Secure UPI/Cards';
+      }
+
+      if (decision.cod_available) {
+        optCod.classList.remove('disabled');
+        if (decision.cod_fee_inr > 0) {
+          amountCod.textContent = '₹' + (val + decision.cod_fee_inr).toFixed(0);
+          codNote.textContent = '+₹' + decision.cod_fee_inr.toFixed(0) + ' delivery confirmation fee';
+        } else {
+          amountCod.textContent = '₹' + val.toFixed(0);
+          codNote.textContent = 'Zero fee doorstep cash payment';
+        }
+      } else {
+        optCod.classList.add('disabled');
+        codNote.textContent = 'Cash on Delivery disabled for this address';
+        selectPayOption('PREPAID');
+      }
+    }
+
+    function handleRealScore() {
+      applySdkConfig();
+      var btn = document.getElementById('btn-score');
+      var spinner = document.getElementById('btn-spinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline';
+
+      var payload = {
+        pincode: document.getElementById('pincode').value.trim(),
+        address: document.getElementById('address-line').value.trim(),
+        orderValue: parseFloat(document.getElementById('order-value').value) || 2499,
+        category: document.getElementById('order-category').value,
+        isCod: true,
+        customerHistory: {
+          past_orders: parseInt(document.getElementById('past-orders').value) || 0,
+          past_rto_count: parseInt(document.getElementById('past-rto').value) || 0,
+          account_age_days: 60.0,
+          order_velocity_24h: 1,
+        },
+      };
+
+      window.RTOGuard.score(payload)
+        .then(function (decision) {
+          renderDecisionUI(decision, false);
+        })
+        .catch(function (err) {
+          console.error('Score failed:', err);
+        })
+        .finally(function () {
+          btn.disabled = false;
+          spinner.style.display = 'none';
+        });
+    }
+
+    function renderFixture(tier) {
+      var val = parseFloat(document.getElementById('order-value').value) || 2499;
+      var fixture;
+      if (tier === 'ALLOW') {
+        fixture = {
+          api_version: 'v1',
+          request_id: 'fix_allow_sample',
+          tier: 'ALLOW',
+          rto_probability: 0.038,
+          reasons: ['Established customer history with 0 prior RTOs', 'High-confidence urban Tier 1 serviceable pincode'],
+          recommended_action: 'allow',
+          cod_available: true,
+          cod_fee_inr: 0,
+          prepaid_discount_inr: 0,
+          message: 'Standard Cash on Delivery is approved. Zero additional checkout friction.',
+          summary: 'ALLOW tier: 3.8% return probability.',
+          degraded: false,
+        };
+      } else if (tier === 'REVIEW') {
+        fixture = {
+          api_version: 'v1',
+          request_id: 'fix_review_sample',
+          tier: 'REVIEW',
+          rto_probability: 0.185,
+          reasons: ['First-time account with no prior delivery track record', 'High-value electronics product category'],
+          recommended_action: 'review',
+          cod_available: true,
+          cod_fee_inr: 50,
+          prepaid_discount_inr: 50,
+          message: 'Medium return probability detected. COD requires ₹50 delivery confirmation fee, or save ₹50 with instant online payment.',
+          summary: 'REVIEW tier: 18.5% return probability.',
+          degraded: false,
+        };
+      } else {
+        fixture = {
+          api_version: 'v1',
+          request_id: 'fix_block_sample',
+          tier: 'BLOCK',
+          rto_probability: 0.542,
+          reasons: ['High historical customer return rate (>50%)', 'Remote semi-urban postal hub with elevated delivery failure rate'],
+          recommended_action: 'block',
+          cod_available: false,
+          cod_fee_inr: 0,
+          prepaid_discount_inr: 75,
+          message: 'High return probability detected. Cash on Delivery is disabled. Pay online via UPI/Card to get ₹75 instant discount.',
+          summary: 'BLOCK tier: 54.2% return probability.',
+          degraded: false,
+        };
+      }
+      renderDecisionUI(fixture, true);
+      // Dispatch event to show fixture works in listener too
+      window.RTOGuard._dispatchEvent(fixture);
+    }
+  </script>
+</body>
+</html>
