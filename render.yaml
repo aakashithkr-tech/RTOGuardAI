@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: rtoguard-ai
+    runtime: docker
+    plan: starter
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    disk:
+      name: rtoguard-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_PATH
+        value: /var/data/rtoguard.db
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: RATE_LIMIT_PER_MIN
+        value: "60"
+      # ── Shipment Tracking (AfterShip or Shiprocket) ──────────────────────────
+      # Leave TRACKING_PROVIDER blank to use built-in mock simulation mode.
+      # Set to "aftership" (free, 100 trackings/month) or "shiprocket".
+      - key: TRACKING_PROVIDER
+        sync: false
+      - key: AFTERSHIP_API_KEY
+        sync: false
+      - key: AFTERSHIP_WEBHOOK_SECRET
+        sync: false
+      - key: SHIPROCKET_EMAIL
+        sync: false
+      - key: SHIPROCKET_PASSWORD
+        sync: false
+      - key: TRACKING_WEBHOOK_SECRET
+        sync: false

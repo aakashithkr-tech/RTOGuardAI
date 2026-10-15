@@ -1,0 +1,453 @@
+{
+  "final_model": {
+    "key": "09_catboost__flaml",
+    "label": "CatBoost",
+    "strategy": "FLAML",
+    "source": "tuned"
+  },
+  "challenger_experiments": {
+    "run": [
+      "Logistic Regression + interactions",
+      "CatBoost + interactions",
+      "calibrated (sigmoid)",
+      "calibrated (isotonic)",
+      "blend 0.50xLogReg + 0.50xCatBoost"
+    ],
+    "results": [
+      {
+        "challenger": "Logistic Regression + interactions",
+        "pr_auc": 0.3929337640088291,
+        "roc_auc": 0.8091944264172553,
+        "brier": 0.1094329096305019,
+        "log_loss": 0.34434645104978645,
+        "mean_pred": 0.15435514720447555,
+        "base_rate": 0.155,
+        "boot_observed_delta": -0.004060465390583301,
+        "boot_ci_lo": -0.012600220744988146,
+        "boot_ci_hi": 0.003780643288564123,
+        "boot_p_two_sided": 0.337,
+        "boot_significant": false,
+        "verdict": "tie - CI spans 0"
+      },
+      {
+        "challenger": "CatBoost + interactions",
+        "pr_auc": 0.392418536081583,
+        "roc_auc": 0.8067536552777248,
+        "brier": 0.1098400864927255,
+        "log_loss": 0.3456101040328847,
+        "mean_pred": 0.1510848440512767,
+        "base_rate": 0.155,
+        "boot_observed_delta": -0.004575693317829421,
+        "boot_ci_lo": -0.015519146919761594,
+        "boot_ci_hi": 0.007541646459828231,
+        "boot_p_two_sided": 0.438,
+        "boot_significant": false,
+        "verdict": "tie - CI spans 0"
+      },
+      {
+        "challenger": "calibrated (sigmoid)",
+        "pr_auc": 0.3931240832736902,
+        "roc_auc": 0.8056490169879749,
+        "brier": 0.11150702292727122,
+        "log_loss": 0.3586603373406893,
+        "mean_pred": 0.16004436356274024,
+        "base_rate": 0.155,
+        "boot_observed_delta": -0.003870146125722229,
+        "boot_ci_lo": -0.017384538056679086,
+        "boot_ci_hi": 0.009778634174969441,
+        "boot_p_two_sided": 0.551,
+        "boot_significant": false,
+        "verdict": "tie - CI spans 0"
+      },
+      {
+        "challenger": "calibrated (isotonic)",
+        "pr_auc": 0.39683432365248017,
+        "roc_auc": 0.8065833937774385,
+        "brier": 0.1097158073601509,
+        "log_loss": 0.34554459554822997,
+        "mean_pred": 0.16262908411824487,
+        "base_rate": 0.155,
+        "boot_observed_delta": -0.000159905746932254,
+        "boot_ci_lo": -0.013676064552981957,
+        "boot_ci_hi": 0.013474633989953909,
+        "boot_p_two_sided": 0.964,
+        "boot_significant": false,
+        "verdict": "tie - CI spans 0"
+      },
+      {
+        "challenger": "blend 0.50xLogReg + 0.50xCatBoost",
+        "pr_auc": 0.3982446525151535,
+        "roc_auc": 0.8101561366673028,
+        "brier": 0.10917267598995445,
+        "log_loss": 0.34385893687221364,
+        "mean_pred": 0.15551365299195163,
+        "base_rate": 0.155,
+        "boot_observed_delta": 0.0012504231157410839,
+        "boot_ci_lo": -0.0032967683142592795,
+        "boot_ci_hi": 0.005464493365679075,
+        "boot_p_two_sided": 0.631,
+        "boot_significant": false,
+        "verdict": "tie - CI spans 0"
+      }
+    ],
+    "accepted": null,
+    "n_beating_baseline": 0,
+    "interaction_ablation": [
+      {
+        "model": "Logistic Regression",
+        "features": "base features",
+        "val_pr_auc": 0.39394140089056,
+        "val_roc_auc": 0.8096259591525101,
+        "val_brier": 0.10941123746886729
+      },
+      {
+        "model": "Logistic Regression",
+        "features": "+ interactions",
+        "val_pr_auc": 0.3929337640088291,
+        "val_roc_auc": 0.8091944264172553,
+        "val_brier": 0.1094329096305019
+      },
+      {
+        "model": "CatBoost",
+        "features": "base features",
+        "val_pr_auc": 0.3930982157578525,
+        "val_roc_auc": 0.8061853025386525,
+        "val_brier": 0.109875680488981
+      },
+      {
+        "model": "CatBoost",
+        "features": "+ interactions",
+        "val_pr_auc": 0.392418536081583,
+        "val_roc_auc": 0.8067536552777248,
+        "val_brier": 0.1098400864927255
+      }
+    ],
+    "calibration_cost": [
+      {
+        "variant": "uncalibrated (incumbent)",
+        "own_optimal_threshold": 0.37,
+        "val_cost_per_order": 27.300192499999998,
+        "ece": 0.01316549023809653,
+        "recall": 0.2967741935483871,
+        "precision": 0.4801670146137787
+      },
+      {
+        "variant": "calibrated (sigmoid)",
+        "own_optimal_threshold": 0.3,
+        "val_cost_per_order": 27.650265,
+        "ece": 0.03496543902918554,
+        "recall": 0.3987096774193548,
+        "precision": 0.4256198347107438
+      },
+      {
+        "variant": "calibrated (isotonic)",
+        "own_optimal_threshold": 0.34,
+        "val_cost_per_order": 27.807125,
+        "ece": 0.013311155182711053,
+        "recall": 0.38451612903225807,
+        "precision": 0.4269340974212034
+      }
+    ],
+    "blend_weight_curve": [
+      {
+        "weight_a": 0.0,
+        "score": 0.3969942293994124
+      },
+      {
+        "weight_a": 0.05,
+        "score": 0.3975512206435159
+      },
+      {
+        "weight_a": 0.1,
+        "score": 0.39759669931694436
+      },
+      {
+        "weight_a": 0.15,
+        "score": 0.3977273194586185
+      },
+      {
+        "weight_a": 0.2,
+        "score": 0.39768135766533147
+      },
+      {
+        "weight_a": 0.25,
+        "score": 0.39783260631701733
+      },
+      {
+        "weight_a": 0.3,
+        "score": 0.3981073245428928
+      },
+      {
+        "weight_a": 0.35,
+        "score": 0.39789983549989
+      },
+      {
+        "weight_a": 0.4,
+        "score": 0.3980307951703346
+      },
+      {
+        "weight_a": 0.45,
+        "score": 0.3981737578572203
+      },
+      {
+        "weight_a": 0.5,
+        "score": 0.3982446525151535
+      },
+      {
+        "weight_a": 0.55,
+        "score": 0.39809818103654193
+      },
+      {
+        "weight_a": 0.6,
+        "score": 0.3980051759836228
+      },
+      {
+        "weight_a": 0.65,
+        "score": 0.39804513561881183
+      },
+      {
+        "weight_a": 0.7,
+        "score": 0.3979373177560248
+      },
+      {
+        "weight_a": 0.75,
+        "score": 0.3979436285029336
+      },
+      {
+        "weight_a": 0.8,
+        "score": 0.39746508130716224
+      },
+      {
+        "weight_a": 0.85,
+        "score": 0.39710441309714317
+      },
+      {
+        "weight_a": 0.9,
+        "score": 0.39691701035195376
+      },
+      {
+        "weight_a": 0.95,
+        "score": 0.39669138167930085
+      },
+      {
+        "weight_a": 1.0,
+        "score": 0.3966185837109062
+      }
+    ],
+    "blend_best_weight": 0.5,
+    "test_evaluations_executed": 2,
+    "test_informed_decisions": 1,
+    "model_changed_by_challengers": false,
+    "operating_point_unchanged": true,
+    "note": "The challenger experiments were added after the baseline had been scored on test. No challenger was accepted, so the model, threshold and tier cuts are unchanged and section 3 re-executes an identical computation: the test evaluation ran twice but informed one decision set, the original. See WHAT_BROKE.md #17."
+  },
+  "population_shift": [
+    {
+      "profile": "generated mix (baseline)",
+      "pr_auc": 0.38583614893692886,
+      "roc_auc": 0.8060109531076199,
+      "brier": 0.10586744736326541,
+      "base_rate": 0.1473,
+      "effective_n": 10000.0,
+      "pr_auc_lift": 2.6193900131495513,
+      "cost_per_order_inr": 26.511917500000006,
+      "lift_vs_generated": 1.0
+    },
+    {
+      "profile": "metro-heavy D2C",
+      "pr_auc": 0.3473567804036396,
+      "roc_auc": 0.8082892965644838,
+      "brier": 0.09474316043507326,
+      "base_rate": 0.12685740853700841,
+      "effective_n": 6659.721874700245,
+      "pr_auc_lift": 2.738167083890133,
+      "cost_per_order_inr": 23.42147185522482,
+      "lift_vs_generated": 1.0453453170945568
+    },
+    {
+      "profile": "small-town heavy",
+      "pr_auc": 0.44124906139149456,
+      "roc_auc": 0.7957476930431023,
+      "brier": 0.12619602920864217,
+      "base_rate": 0.18694797964153095,
+      "effective_n": 4862.005570200713,
+      "pr_auc_lift": 2.3602772398909093,
+      "cost_per_order_inr": 32.243214357517026,
+      "lift_vs_generated": 0.9010789642024003
+    },
+    {
+      "profile": "fashion-led catalogue",
+      "pr_auc": 0.43209378913879093,
+      "roc_auc": 0.7862777429546385,
+      "brier": 0.1332304184523604,
+      "base_rate": 0.19919727952674401,
+      "effective_n": 6331.582796239554,
+      "pr_auc_lift": 2.1691751522177714,
+      "cost_per_order_inr": 33.99738207633153,
+      "lift_vs_generated": 0.8281222503439103
+    },
+    {
+      "profile": "electronics-led catalogue",
+      "pr_auc": 0.2974007873573107,
+      "roc_auc": 0.8180482294184214,
+      "brier": 0.07199844048072795,
+      "base_rate": 0.09063008777395867,
+      "effective_n": 4246.429352435663,
+      "pr_auc_lift": 3.281479635097129,
+      "cost_per_order_inr": 17.467810049750224,
+      "lift_vs_generated": 1.2527648111292453
+    },
+    {
+      "profile": "COD-dominant (85%)",
+      "pr_auc": 0.3909716753318311,
+      "roc_auc": 0.736411091910743,
+      "brier": 0.14114273235486777,
+      "base_rate": 0.19826743880190867,
+      "effective_n": 8114.512257843303,
+      "pr_auc_lift": 1.9719409182586733,
+      "cost_per_order_inr": 35.58221217142966,
+      "lift_vs_generated": 0.7528244775918703
+    },
+    {
+      "profile": "prepaid-led (35% COD)",
+      "pr_auc": 0.3701055813205959,
+      "roc_auc": 0.8629086858747451,
+      "brier": 0.06592890508066232,
+      "base_rate": 0.08959486139911835,
+      "effective_n": 7705.021976233112,
+      "pr_auc_lift": 4.13087955649472,
+      "cost_per_order_inr": 16.242564684372816,
+      "lift_vs_generated": 1.577038751677821
+    }
+  ],
+  "covariate_shift_train_vs_val": {
+    "domain_auc": 0.6677224371428572,
+    "n_a": 35000,
+    "n_b": 5000
+  },
+  "frozen_operating_point": {
+    "model_key": "09_catboost__flaml",
+    "threshold": 0.37,
+    "low_cut": 0.05,
+    "high_cut": 0.4
+  },
+  "selected_on": "validation only",
+  "test": {
+    "n": 10000,
+    "base_rate": 0.1473,
+    "pr_auc": 0.38583614893692886,
+    "roc_auc": 0.8060109531076199,
+    "brier": 0.10586744736326541,
+    "log_loss": 0.33595086378350514,
+    "ece": 0.011751877880299367,
+    "precision": 0.4583333333333333,
+    "recall": 0.26883910386965376,
+    "f1": 0.33889602053915274,
+    "flag_rate": 0.0864,
+    "confusion_matrix": {
+      "tn": 8059,
+      "fp": 468,
+      "fn": 1077,
+      "tp": 396
+    },
+    "pr_auc_lift": 2.6193900131495513
+  },
+  "validation": {
+    "pr_auc": 0.3969942293994124,
+    "roc_auc": 0.8098195838900555,
+    "brier": 0.10917964117658517,
+    "ece": 0.01316549023809653
+  },
+  "cost": {
+    "params": {
+      "fn_cost_inr": 200.0,
+      "margin_rate": 0.25,
+      "prepaid_conversion": 0.45,
+      "cod_fee_inr": 50.0,
+      "fee_abandon_rate": 0.18
+    },
+    "total_at_frozen_threshold_inr": 265119.175,
+    "total_at_0.5_threshold_inr": 285954.225,
+    "cost_of_using_default_threshold_inr": 20835.04999999999,
+    "no_model_baselines_inr": {
+      "allow_everything": 294600.0,
+      "block_everything": 1330855.2125000001
+    },
+    "saving_vs_best_no_model_inr": 29480.82500000001,
+    "cost_per_order_inr": 26.5119175,
+    "three_tier": {
+      "low_cut": 0.05,
+      "high_cut": 0.4,
+      "total_cost_inr": 150105.59475000002,
+      "cost_per_order_inr": 15.010559475000003,
+      "n_allow_cod": 3811,
+      "rto_rate_allow_cod": 0.01338231435318814,
+      "n_charge_cod_fee": 5594,
+      "rto_rate_charge_cod_fee": 0.20343224883804076,
+      "n_disable_cod": 595,
+      "rto_rate_disable_cod": 0.4773109243697479
+    },
+    "sensitivity_threshold_range": [
+      0.21,
+      0.48
+    ]
+  },
+  "three_tier_policy": [
+    {
+      "tier": "allow_cod",
+      "action": "allow COD",
+      "score_range": "< 0.050",
+      "n_orders": 3811,
+      "share": 0.3811,
+      "actual_rto_rate": 0.01338231435318814,
+      "mean_order_value": 1407.9016006297559,
+      "lift_vs_base": 0.09085074238416932
+    },
+    {
+      "tier": "charge_cod_fee",
+      "action": "charge a COD fee",
+      "score_range": "0.050 - 0.400",
+      "n_orders": 5594,
+      "share": 0.5594,
+      "actual_rto_rate": 0.20343224883804076,
+      "mean_order_value": 912.9081158383983,
+      "lift_vs_base": 1.381074330197154
+    },
+    {
+      "tier": "disable_cod",
+      "action": "disable COD, offer prepaid",
+      "score_range": ">= 0.400",
+      "n_orders": 595,
+      "share": 0.0595,
+      "actual_rto_rate": 0.4773109243697479,
+      "mean_order_value": 784.7932773109244,
+      "lift_vs_base": 3.2404000296656346
+    }
+  ],
+  "prevalence_shift": {
+    "range_tested": [
+      0.14,
+      0.4
+    ],
+    "published_range": [
+      0.18,
+      0.35
+    ],
+    "min_pr_auc_lift_in_published_range": 1.8882333603608354,
+    "beats_no_model_everywhere_in_range": true,
+    "worst_regret_inr_per_order": 16.41603706343549,
+    "worst_regret_at_prevalence": 0.35,
+    "worst_regret_with_prior_correction_inr": 0.0772789919275425,
+    "ece_untreated_max": 0.16856189640350874,
+    "ece_corrected_max": 0.028777613023138283
+  },
+  "bayes_ceiling_val": {
+    "pr_auc": 0.5547817270393051,
+    "roc_auc": 0.868011452567284,
+    "brier": 0.09401952876799757,
+    "log_loss": 0.30037419974810425,
+    "mean_pred": 0.15795125094862025,
+    "base_rate": 0.155
+  },
+  "data_claim": "Trained and evaluated on synthetic orders built on the real India Post pincode directory and calibrated against published Indian RTO statistics (enforced by test). No claim of validation on real merchant data is made."
+}
