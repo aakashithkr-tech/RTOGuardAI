@@ -9,8 +9,11 @@ Provides:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -46,9 +49,11 @@ from api_keys import (
     verify_api_key,
 )
 from database import (
+    get_all_orders,
     get_order_by_id,
     get_shipment_events,
     get_shipment_tracking,
+    get_shipment_tracking_by_awb,
     save_shipment_event,
     save_shipment_tracking,
     upsert_order,
@@ -57,9 +62,14 @@ from integrations.razorpay import evaluate_dynamic_checkout
 from integrations.tracking import (
     build_tracking_url,
     get_supported_couriers,
+    get_tracking_config_status,
+    normalize_shipment_status,
     refresh_tracking_milestone,
     register_order_tracking,
+    resolve_courier,
     sync_tracking_update_to_order,
+    verify_aftership_webhook_signature,
+    verify_generic_webhook_signature,
 )
 from schemas import CustomerHistoryIn, TrackingRegisterIn
 from services.billing import get_billing_provider
@@ -887,6 +897,135 @@ def v1_refresh_tracking(order_id: str):
     updated_track["tracking_url"] = build_tracking_url(updated_track["courier_code"], updated_track["tracking_number"])
     updated_track["mode"] = updated_track.get("mode", "simulated")
     return updated_track
+
+
+@v1_router.get("/tracking/status", tags=["v1-tracking"], summary="Report tracking provider configuration status")
+def v1_get_tracking_status():
+    """Report logistics tracking provider status, live/mock mode, and webhook configuration."""
+    return get_tracking_config_status()
+
+
+@v1_router.post("/tracking/webhook", tags=["v1-tracking"], summary="Receive courier tracking webhook")
+async def v1_tracking_webhook(request: Request):
+    """Receive automatic tracking webhook notifications from carriers (AfterShip/Shiprocket/custom)."""
+    raw_body = await request.body()
+    signature_aftership = request.headers.get("as-signature-hmac-sha256")
+    generic_secret = request.headers.get("X-Tracking-Webhook-Secret")
+    signature_generic = request.headers.get("X-Tracking-Signature")
+
+    # Verify signature if configured
+    if os.environ.get("AFTERSHIP_WEBHOOK_SECRET") and signature_aftership:
+        if not verify_aftership_webhook_signature(raw_body, signature_aftership):
+            raise HTTPException(status_code=401, detail="Invalid AfterShip webhook signature.")
+    elif os.environ.get("TRACKING_WEBHOOK_SECRET"):
+        if not verify_generic_webhook_signature(raw_body, signature_generic, generic_secret):
+            raise HTTPException(status_code=401, detail="Invalid tracking webhook signature or secret.")
+
+    try:
+        data = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    tracking_payload = (
+        data.get("msg")
+        or data.get("tracking")
+        or data.get("data", {}).get("tracking")
+        or data
+    )
+
+    awb = str(
+        tracking_payload.get("tracking_number")
+        or tracking_payload.get("awb")
+        or tracking_payload.get("awb_code")
+        or ""
+    ).strip()
+    order_id = str(tracking_payload.get("order_id") or "").strip()
+
+    order: Optional[dict[str, Any]] = None
+    if order_id:
+        order = get_order_by_id(order_id)
+
+    if not order and awb:
+        existing_track = get_shipment_tracking_by_awb(awb)
+        if existing_track:
+            order = get_order_by_id(existing_track["order_id"])
+
+    if not order and awb:
+        for o in get_all_orders():
+            if (
+                o.get("ndr", {}).get("courierAwb") == awb
+                or o.get("tracking", {}).get("trackingNumber") == awb
+            ):
+                order = o
+                break
+
+    if not order:
+        logger.warning(f"Tracking webhook received for unresolvable order: awb={awb}, order_id={order_id}")
+        return {"status": "ignored", "reason": "Order not found", "awb": awb}
+
+    order_id = order["id"]
+    tag = (
+        tracking_payload.get("tag")
+        or tracking_payload.get("current_status")
+        or tracking_payload.get("status", "IN_TRANSIT")
+    )
+    unified_status = normalize_shipment_status(tag)
+    courier_code = str(
+        tracking_payload.get("slug")
+        or tracking_payload.get("courier_code")
+        or order.get("tracking", {}).get("courierCode")
+        or "delhivery"
+    )
+    courier_name = resolve_courier(courier_code)["name"]
+
+    status_details = (
+        tracking_payload.get("subtag_message")
+        or tracking_payload.get("message")
+        or tracking_payload.get("status_details")
+        or tag
+    )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    tracking_record = {
+        "order_id": order_id,
+        "tracking_number": awb or order.get("tracking", {}).get("trackingNumber", "AWB_WEBHOOK"),
+        "courier_code": courier_code,
+        "courier_name": courier_name,
+        "current_status": unified_status,
+        "status_details": status_details,
+        "estimated_delivery": tracking_payload.get("expected_delivery") or tracking_payload.get("etd"),
+        "origin_city": tracking_payload.get("origin_city"),
+        "destination_city": tracking_payload.get("destination_city") or order.get("customer", {}).get("city"),
+        "last_checkpoint_time": tracking_payload.get("checkpoint_time") or now_iso,
+        "updated_at": now_iso,
+        "mode": "live",
+        "raw_data": data,
+    }
+
+    save_shipment_tracking(tracking_record)
+
+    save_shipment_event({
+        "order_id": order_id,
+        "tracking_number": tracking_record["tracking_number"],
+        "status": unified_status,
+        "substatus": tracking_payload.get("subtag"),
+        "message": status_details,
+        "location": tracking_payload.get("location") or tracking_payload.get("city"),
+        "timestamp": now_iso,
+        "raw_json": json.dumps(data),
+    })
+
+    updated_order = sync_tracking_update_to_order(order, tracking_record)
+    upsert_order(updated_order)
+
+    logger.info(f"Processed tracking webhook for order {order_id}: status={unified_status}")
+    return {
+        "status": "success",
+        "order_id": order_id,
+        "awb": tracking_record["tracking_number"],
+        "current_status": unified_status,
+    }
+
 
 
 

@@ -137,6 +137,12 @@ def get_service() -> ScoringService:
             f"{MODEL_PATH} not found. Run 05_final_evaluation.ipynb to produce it; "
             "the demo deliberately refuses to fabricate a model."
         )
+    try:
+        import sklearn.compose._column_transformer as ct
+        if not hasattr(ct, "_RemainderColsList"):
+            ct._RemainderColsList = type("_RemainderColsList", (list,), {})
+    except Exception:
+        pass
     bundle = joblib.load(MODEL_PATH)
     digest = hashlib.sha256(MODEL_PATH.read_bytes()).hexdigest()
     return ScoringService(

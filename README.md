@@ -489,3 +489,74 @@ The repository is configured for zero-configuration Docker Blueprint deployment 
    - `BHASHINI_API_KEY`: (Optional) For live ULCA Hindi translations
    - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`: (Optional) Razorpay credentials; use test-mode keys for the hackathon demo
 4. **Unified Single-Port Serving**: The multi-stage Docker container builds the React frontend with Vite and mounts the static distribution under FastAPI, serving the entire application on the port injected by Render via `$PORT`.
+
+---
+
+## 7. Online Order & Shipment Tracking API Integration
+
+RTOGuardAI features a production-grade multi-carrier shipment tracking integration supporting top Indian couriers:
+
+### Supported Indian Couriers & Aggregators
+- **Delhivery**: Surface & Express parcel tracking (`https://www.delhivery.com/track/package/{awb}`)
+- **Blue Dart Express**: Air Express / Apex tracking
+- **DTDC Express**: DotZot & domestic express parcel tracking
+- **Ecom Express**: Ground services & doorstep verification tracking
+- **Xpressbees**: Omnichannel e-commerce tracking
+- **India Post (Speed Post)**: Universal postal circle parcel tracking
+- **Shadowfax**: Hyperlocal and regional forward parcel logistics
+- **Ekart Logistics**: Large-scale supply chain parcel tracking
+- **Amazon Shipping India**: External merchant shipping tracking
+- **ClickPost & Shiprocket**: Multi-carrier logistics aggregators
+
+### Tracking Providers Comparison
+
+| Provider | Type | Free Tier | Supported Couriers | Webhooks | Best Suited For |
+|---|---|---|---|---|---|
+| **AfterShip** *(Recommended)* | 3rd-Party Tracking API | **100 trackings / month free forever** | 1,100+ global & all Indian couriers | HMAC-SHA256 (`as-signature-hmac-sha256`) | Real-time multi-carrier tracking without shipping accounts |
+| **Shiprocket** | Shipping Aggregator API | **Free for registered sellers** | 17+ Indian couriers via single account | Real-time webhook callbacks | Merchants already booking shipments through Shiprocket |
+| **ClickPost** | Logistics SaaS / NDR Suite | Paid / Enterprise trial | All major Indian couriers | Yes | High-volume D2C brands requiring automated NDR workflows |
+| **Delhivery Direct API** | Direct Courier API | Pay-per-shipment contract | Delhivery only | Yes | High-volume merchants shipping solely via Delhivery |
+| **Simulated Mock Engine** | Built-in Local Engine | **100% Free / Zero credentials** | All 10 Indian couriers | Built-in test webhook simulator | Local development, CI/CD testing, hackathons & demos |
+
+### Do I Need an Aggregator, Courier, or Tracking API Account?
+- **Third-Party Tracking API (e.g. AfterShip)**: **Best choice if you ship with multiple couriers** or want tracking without changing how you fulfill orders. You only register the AWB and courier code to get standardized status updates and webhooks.
+- **Shipping Aggregator Account (e.g. Shiprocket)**: **Best if you also book labels and pick up parcels through the aggregator**. The AWB is created automatically in their system.
+- **Direct Courier Account (e.g. Delhivery, Blue Dart)**: **Requires business documentation, GSTIN, and minimum monthly volume commitments**. Best for enterprise merchants with direct carrier contracts.
+
+### Environment Variables Setup
+Never hardcode API credentials. Configure them securely in `.env` (or in Render Environment Variables):
+
+```bash
+# Choose provider: "aftership" | "shiprocket" | leave empty for zero-credential mock mode
+TRACKING_PROVIDER=aftership
+
+# AfterShip (https://accounts.aftership.com/register)
+AFTERSHIP_API_KEY=your_aftership_api_key_here
+AFTERSHIP_WEBHOOK_SECRET=your_aftership_webhook_secret_here
+
+# Shiprocket (https://app.shiprocket.in/register)
+SHIPROCKET_EMAIL=your_shiprocket_email@example.com
+SHIPROCKET_PASSWORD=your_shiprocket_password
+
+# Generic Webhook Secret (for custom carrier webhooks)
+TRACKING_WEBHOOK_SECRET=your_generic_webhook_secret_here
+```
+
+### Shipment Tracking Endpoints Reference
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/tracking/status` or `/v1/tracking/status` | Diagnostic inspection of active provider and webhook readiness |
+| `GET` | `/api/tracking/couriers` or `/v1/tracking/couriers` | List supported Indian courier partners with tracking templates |
+| `POST` | `/api/orders/{id}/tracking` or `/v1/orders/{id}/tracking` | Register or update courier partner and AWB tracking number |
+| `GET` | `/api/orders/{id}/tracking` or `/v1/orders/{id}/tracking` | Retrieve latest shipment status, courier name, and tracking URL |
+| `GET` | `/api/orders/{id}/tracking/history` or `/v1/orders/{id}/tracking/history` | Retrieve full chronological delivery checkpoint event history |
+| `POST` | `/api/orders/{id}/tracking/refresh` or `/v1/orders/{id}/tracking/refresh` | Poll live carrier API or advance simulated checkpoint milestone |
+| `POST` | `/api/tracking/webhook` or `/v1/tracking/webhook` | Receive carrier webhook callbacks (verifies HMAC signatures) |
+
+### Synchronized RTO Risk Intelligence & Lifecycle
+Shipment events automatically feed into RTOGuard's risk engine:
+1. **`OUT_FOR_DELIVERY`**: Order status transitions to `OUT_FOR_DELIVERY`.
+2. **`FAILED_ATTEMPT`**: Increments `deliveryAttempts`, transitions order to `NDR_PENDING`, creates an NDR audit event, and dynamically elevates `riskScore` to trigger urgent reattempt verification.
+3. **`RTO_INITIATED`**: Transitions order to `RTO_INITIATED`, updates `ndr.recoveryStatus` to `RTO_APPROVED`, and updates loss analytics.
+4. **`DELIVERED`**: Transitions order to `DELIVERED`, records delivery success, and resolves active NDR flags.
+

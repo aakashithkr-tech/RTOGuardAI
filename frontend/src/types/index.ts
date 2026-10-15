@@ -134,6 +134,7 @@ export interface Order {
   plain_language_summary?: string;
   summary_source?: string;
   ndr?: NdrDetails;
+  tracking?: ShipmentTrackingInfo;
   deliveryAttempts: number;
   timeline: TimelineEvent[];
   updatedAt: string;

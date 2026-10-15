@@ -386,7 +386,7 @@ export const ShipmentTracker: React.FC<ShipmentTrackerProps> = ({ order }) => {
             )}
 
             {/* Carrier tracking link */}
-            {tracking.tracking_url && tracking.mode === 'live' && (
+            {tracking.tracking_url && (
               <a
                 href={tracking.tracking_url}
                 target="_blank"
@@ -394,7 +394,7 @@ export const ShipmentTracker: React.FC<ShipmentTrackerProps> = ({ order }) => {
                 className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold transition-colors"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                Track on {tracking.courier_name} website
+                Track directly on {tracking.courier_name} portal ({tracking.tracking_number})
               </a>
             )}
           </div>

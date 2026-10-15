@@ -96,6 +96,22 @@ SUPPORTED_COURIERS: dict[str, dict[str, Any]] = {
         "default_service": "Express Courier",
         "description": "Large-scale supply chain and fulfillment courier.",
     },
+    "amazon-shipping": {
+        "code": "amazon-shipping",
+        "name": "Amazon Shipping India",
+        "aftership_slug": "amazon-shipping-in",
+        "tracking_url_template": "https://track.amazon.in/tracking/{awb}",
+        "default_service": "Standard Shipping",
+        "description": "Amazon India logistics infrastructure for external merchant orders.",
+    },
+    "clickpost": {
+        "code": "clickpost",
+        "name": "ClickPost Multi-Carrier",
+        "aftership_slug": "clickpost",
+        "tracking_url_template": "https://track.clickpost.in/?waybill={awb}",
+        "default_service": "Multi-Carrier Unified Logistics",
+        "description": "Indian enterprise multi-carrier tracking and NDR management platform.",
+    },
 }
 
 
@@ -733,6 +749,21 @@ def register_order_tracking(
                 destination_city=dest,
             )
             tracking_result["mode"] = "fallback_mock"
+    elif provider_name == "shiprocket" and SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD:
+        try:
+            client = ShiprocketClient(SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD)
+            tracking_result = client.get_tracking(tracking_number)
+            tracking_result["order_id"] = order_id
+        except Exception as exc:
+            logger.error(f"Shiprocket tracking fetch failed: {exc}. Falling back to mock data.")
+            tracking_result = _mock_client.generate_simulated_tracking(
+                order_id=order_id,
+                tracking_number=tracking_number,
+                courier_code=code,
+                order_status=order.get("status"),
+                destination_city=dest,
+            )
+            tracking_result["mode"] = "fallback_mock"
     else:
         # Zero-credential mock simulation mode
         tracking_result = _mock_client.generate_simulated_tracking(
@@ -765,6 +796,14 @@ def fetch_latest_tracking(
             return data
         except Exception as exc:
             logger.error(f"Live AfterShip fetch failed: {exc}")
+    elif provider_name == "shiprocket" and SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD:
+        try:
+            client = ShiprocketClient(SHIPROCKET_EMAIL, SHIPROCKET_PASSWORD)
+            data = client.get_tracking(tracking_number)
+            data["order_id"] = order_id
+            return data
+        except Exception as exc:
+            logger.error(f"Live Shiprocket fetch failed: {exc}")
 
     # Fallback to mock simulation
     return _mock_client.generate_simulated_tracking(
@@ -785,7 +824,9 @@ def refresh_tracking_milestone(
     courier_code = tracking_record["courier_code"]
     provider_name = get_configured_provider_name()
 
-    if provider_name == "aftership" and AFTERSHIP_API_KEY:
+    if (provider_name == "aftership" and AFTERSHIP_API_KEY) or (
+        provider_name == "shiprocket" and SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD
+    ):
         return fetch_latest_tracking(order, tracking_number, courier_code)
 
     # In mock mode, advance sequentially so user sees live state change

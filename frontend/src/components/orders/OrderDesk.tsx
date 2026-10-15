@@ -10,6 +10,7 @@ import {
   MapPin,
   Calendar,
   AlertTriangle,
+  Truck,
 } from 'lucide-react';
 import { Order, RiskCategory, OrderStatus, PaymentMethod } from '../../types';
 import { RiskBadge, StatusBadge, PaymentBadge } from '../common/Badge';
@@ -209,6 +210,7 @@ export const OrderDesk: React.FC<OrderDeskProps> = ({
                   <th className="px-4 py-3.5">Items</th>
                   <th className="px-4 py-3.5">Value & Mode</th>
                   <th className="px-4 py-3.5">Risk Score</th>
+                  <th className="px-4 py-3.5">Logistics & Tracking</th>
                   <th className="px-4 py-3.5">Expected Contribution</th>
                   <th className="px-4 py-3.5">Status</th>
                   <th className="px-5 py-3.5 text-right">Details</th>
@@ -279,6 +281,43 @@ export const OrderDesk: React.FC<OrderDeskProps> = ({
                         <div className="text-[10px] text-slate-500 mt-0.5 truncate max-w-[150px]" title={order.risk.primaryReason}>
                           {order.risk.primaryReason}
                         </div>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        {order.tracking?.trackingNumber || order.ndr?.courierAwb ? (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-slate-800 text-xs">
+                                {order.tracking?.courierName || order.ndr?.courierName || 'Integrated Courier'}
+                              </span>
+                              {order.tracking?.trackingUrl && (
+                                <a
+                                  href={order.tracking.trackingUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={e => e.stopPropagation()}
+                                  className="text-indigo-600 hover:text-indigo-800"
+                                  title="Open courier tracking link"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500">
+                              AWB: {order.tracking?.trackingNumber || order.ndr?.courierAwb}
+                            </div>
+                            {order.tracking?.estimatedDelivery && (
+                              <div className="text-[10px] text-slate-400">
+                                EDD: {new Date(order.tracking.estimatedDelivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                            <Truck className="w-3.5 h-3.5 text-slate-300" />
+                            <span>Pending Dispatch</span>
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-4 py-3.5">
